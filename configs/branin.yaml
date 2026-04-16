@@ -1,0 +1,28 @@
+# Branin benchmark — 2D, cheap to evaluate, good for quick tests.
+#
+# Global minimum ≈ 0.3979 at three points in [-5,10] × [0,15].
+# We negate it so the optimizer maximizes; best found ≈ -0.3979.
+#
+# Branin is the fastest benchmark: use it first to check that the pipeline
+# works before running longer experiments.
+
+seed:      42
+method:    "parallel_msbo"
+benchmark: "branin"
+
+n_initial: 10
+n_rounds:  20
+
+fast_worker_budget: 6
+slow_worker_budget: 2
+gp_refresh_every:   5
+use_gp:             true
+
+n_random_candidates: 1000
+
+# Sequential is fine here — Branin evaluates in microseconds
+n_eval_workers: 1
+use_parallel:   false
+pass_seed_to_objective: false
+
+output_dir: "results/branin"

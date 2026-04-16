@@ -1,0 +1,27 @@
+{
+  "seed": 42,
+  "method": "parallel_msbo",
+  "benchmark": "branin",
+  "timestamp": "2026-04-16T08:54:27.016319",
+  "git_commit": "e27b5f8",
+  "python_version": "3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]",
+  "config_path": "C:\\Users\\meron\\OneDrive\\Documents\\projects\\parallel-multi-surrogate-opt\\configs\\branin.yaml",
+  "config": {
+    "seed": 42,
+    "method": "parallel_msbo",
+    "benchmark": "branin",
+    "n_initial": 10,
+    "n_rounds": 20,
+    "fast_worker_budget": 6,
+    "slow_worker_budget": 2,
+    "gp_refresh_every": 5,
+    "use_gp": true,
+    "n_random_candidates": 1000,
+    "n_eval_workers": 1,
+    "use_parallel": false,
+    "pass_seed_to_objective": false,
+    "output_dir": "results/branin"
+  },
+  "final_best_y": -0.4085180804662869,
+  "n_observations": 170
+}

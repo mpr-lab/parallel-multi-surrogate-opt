@@ -1,0 +1,25 @@
+# Rastrigin benchmark — 6-dimensional, highly multimodal.
+#
+# Global minimum = 0 at the origin.  Many local minima make this hard.
+# We negate so the optimizer maximizes; best found = 0.
+# This benchmark tests whether the surrogate can navigate a rugged landscape.
+
+seed:      42
+method:    "parallel_msbo"
+benchmark: "rastrigin"
+
+n_initial: 20
+n_rounds:  40      # more rounds for a difficult multimodal function
+
+fast_worker_budget: 6
+slow_worker_budget: 2
+gp_refresh_every:   5
+use_gp:             true
+
+n_random_candidates: 2000
+
+n_eval_workers: 1
+use_parallel:   false
+pass_seed_to_objective: false
+
+output_dir: "results/rastrigin"
