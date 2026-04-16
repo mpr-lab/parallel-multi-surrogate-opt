@@ -1,0 +1,7 @@
+{
+  "seed": 99,
+  "method": "msbo",
+  "benchmark": "branin",
+  "final_best_y": -0.5,
+  "n_observations": 2
+}

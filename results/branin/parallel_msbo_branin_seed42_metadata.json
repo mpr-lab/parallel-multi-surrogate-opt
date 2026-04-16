@@ -2,8 +2,8 @@
   "seed": 42,
   "method": "parallel_msbo",
   "benchmark": "branin",
-  "timestamp": "2026-04-16T08:54:27.016319",
-  "git_commit": "e27b5f8",
+  "timestamp": "2026-04-16T09:45:58.303671",
+  "git_commit": "f364310",
   "python_version": "3.12.3 (tags/v3.12.3:f6650f9, Apr  9 2024, 14:05:25) [MSC v.1938 64 bit (AMD64)]",
   "config_path": "C:\\Users\\meron\\OneDrive\\Documents\\projects\\parallel-multi-surrogate-opt\\configs\\branin.yaml",
   "config": {

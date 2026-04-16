@@ -1,4 +1,4 @@
-x0,x1,y,round_id,source,run_name,seed
+x0,x1,y,round_id,surrogate_source,run_name,seed
 6.6093407283394505,6.583176596280785,-48.89715392288505,-1,random,parallel_msbo_branin_seed42,42
 7.878968798670737,10.460520435890459,-90.41402871305532,-1,random,parallel_msbo_branin_seed42,42
 -3.587339781685257,14.634335274551338,-2.929851688865104,-1,random,parallel_msbo_branin_seed42,42

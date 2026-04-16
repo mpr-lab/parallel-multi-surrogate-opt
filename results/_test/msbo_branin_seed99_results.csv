@@ -1,0 +1,3 @@
+x0,x1,y,round_id,surrogate_source,run_name,seed
+0.1,0.2,-1.0,0,rf,msbo_branin_seed99,99
+0.3,0.4,-0.5,1,gp,msbo_branin_seed99,99

@@ -25,250 +25,250 @@
     -0.4085180804662869,
     -0.4085180804662869
   ],
-  "cumulative_gp_fit_time": 7.243641400011256,
-  "cumulative_rf_fit_time": 5.518353299819864,
-  "cumulative_eval_time": 0.008070999989286065,
+  "cumulative_gp_fit_time": 9.366275000036694,
+  "cumulative_rf_fit_time": 11.771447699749842,
+  "cumulative_eval_time": 0.015503600239753723,
   "n_gp_refreshes": 4,
   "rounds": [
     {
       "round_id": 0,
       "best_y": -1.3811914271764785,
       "n_obs": 18,
-      "rf_fit_time": 0.228199900011532,
-      "gp_fit_time": 0.3390123000135645,
+      "rf_fit_time": 0.4929338999791071,
+      "gp_fit_time": 0.48254300002008677,
       "gp_was_refreshed": true,
-      "mean_eval_time": 5.431250610854477e-05,
+      "mean_eval_time": 8.454998896922916e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 0.714588199974969
+      "cumulative_wall_time": 1.207667600014247
     },
     {
       "round_id": 1,
       "best_y": -1.3811914271764785,
       "n_obs": 26,
-      "rf_fit_time": 0.2691831999691203,
+      "rf_fit_time": 0.5326382999774069,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.2400017264299095e-05,
+      "mean_eval_time": 9.318751108366996e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 1.064718100009486
+      "cumulative_wall_time": 1.8844000999815762
     },
     {
       "round_id": 2,
       "best_y": -1.3811914271764785,
       "n_obs": 34,
-      "rf_fit_time": 0.20084619999397546,
+      "rf_fit_time": 0.6188962999731302,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 5.9924976085312665e-05,
+      "mean_eval_time": 0.0001643875293666497,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 1.347771400003694
+      "cumulative_wall_time": 2.686028299969621
     },
     {
       "round_id": 3,
       "best_y": -1.3811914271764785,
       "n_obs": 42,
-      "rf_fit_time": 0.2631561999442056,
+      "rf_fit_time": 0.7487394999479875,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.9137495807372034e-05,
+      "mean_eval_time": 0.0001233124639838934,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 1.6781953000463545
+      "cumulative_wall_time": 3.6873807000229135
     },
     {
       "round_id": 4,
       "best_y": -1.3811914271764785,
       "n_obs": 50,
-      "rf_fit_time": 0.3403431000187993,
+      "rf_fit_time": 0.8794222000287846,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 5.2499977755360305e-05,
+      "mean_eval_time": 0.0001499749778304249,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 2.091590499971062
+      "cumulative_wall_time": 4.929942599963397
     },
     {
       "round_id": 5,
       "best_y": -1.3811914271764785,
       "n_obs": 58,
-      "rf_fit_time": 0.2664068000158295,
-      "gp_fit_time": 1.5477793000172824,
+      "rf_fit_time": 0.9606125999707729,
+      "gp_fit_time": 2.9847119000041857,
       "gp_was_refreshed": true,
-      "mean_eval_time": 4.983750113751739e-05,
+      "mean_eval_time": 7.151250611059368e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 3.978520800010301
+      "cumulative_wall_time": 8.989519299939275
     },
     {
       "round_id": 6,
       "best_y": -1.3811914271764785,
       "n_obs": 66,
-      "rf_fit_time": 0.38456420006696135,
+      "rf_fit_time": 0.3963370999554172,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 5.7249999372288585e-05,
+      "mean_eval_time": 8.514999353792518e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 4.454424199997447
+      "cumulative_wall_time": 9.503522499930114
     },
     {
       "round_id": 7,
       "best_y": -1.3811914271764785,
       "n_obs": 74,
-      "rf_fit_time": 0.2317033999133855,
+      "rf_fit_time": 0.471791599993594,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.320000880397856e-05,
+      "mean_eval_time": 7.362502219621092e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 4.751624900032766
+      "cumulative_wall_time": 10.095487899961881
     },
     {
       "round_id": 8,
       "best_y": -1.3811914271764785,
       "n_obs": 82,
-      "rf_fit_time": 0.26195329998154193,
+      "rf_fit_time": 0.4648715000366792,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.561251262202859e-05,
+      "mean_eval_time": 7.303750317078084e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 5.082321600057185
+      "cumulative_wall_time": 10.69586049998179
     },
     {
       "round_id": 9,
       "best_y": -1.3811914271764785,
       "n_obs": 90,
-      "rf_fit_time": 0.2613992999540642,
+      "rf_fit_time": 0.5451431999681517,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.482500662561506e-05,
+      "mean_eval_time": 9.323754056822509e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 5.409123399993405
+      "cumulative_wall_time": 11.390197900007479
     },
     {
       "round_id": 10,
       "best_y": -0.41344511828880925,
       "n_obs": 98,
-      "rf_fit_time": 0.24072060000617057,
-      "gp_fit_time": 1.465072700055316,
+      "rf_fit_time": 0.5687699998961762,
+      "gp_fit_time": 2.319243000005372,
       "gp_was_refreshed": true,
-      "mean_eval_time": 3.936249413527548e-05,
+      "mean_eval_time": 8.501250704284757e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 7.171720299986191
+      "cumulative_wall_time": 14.415127699961886
     },
     {
       "round_id": 11,
       "best_y": -0.41344511828880925,
       "n_obs": 106,
-      "rf_fit_time": 0.20827980001922697,
+      "rf_fit_time": 0.549839899991639,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.971250018570572e-05,
+      "mean_eval_time": 7.857500168029219e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 7.447857300052419
+      "cumulative_wall_time": 15.106154699926265
     },
     {
       "round_id": 12,
       "best_y": -0.41344511828880925,
       "n_obs": 114,
-      "rf_fit_time": 0.23655319993849844,
+      "rf_fit_time": 0.7250615999801084,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 5.747501563746482e-05,
+      "mean_eval_time": 0.00011061252735089511,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 7.751613000058569
+      "cumulative_wall_time": 16.004190500010736
     },
     {
       "round_id": 13,
       "best_y": -0.409848216111909,
       "n_obs": 122,
-      "rf_fit_time": 0.21260730002541095,
+      "rf_fit_time": 0.6531156999990344,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 3.82000143872574e-05,
+      "mean_eval_time": 0.00010370000381954014,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 8.027444200008176
+      "cumulative_wall_time": 16.845274099963717
     },
     {
       "round_id": 14,
       "best_y": -0.409848216111909,
       "n_obs": 130,
-      "rf_fit_time": 0.22341219999361783,
+      "rf_fit_time": 0.5569595000706613,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 3.91000066883862e-05,
+      "mean_eval_time": 7.291248766705394e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 8.311711900052615
+      "cumulative_wall_time": 17.53731769998558
     },
     {
       "round_id": 15,
       "best_y": -0.409848216111909,
       "n_obs": 138,
-      "rf_fit_time": 0.3990361999021843,
-      "gp_fit_time": 3.8917770999250934,
+      "rf_fit_time": 0.502312200027518,
+      "gp_fit_time": 3.5797771000070497,
       "gp_was_refreshed": true,
-      "mean_eval_time": 6.487499922513962e-05,
+      "mean_eval_time": 0.00015203749353531748,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 12.692914300016128
+      "cumulative_wall_time": 21.73659919993952
     },
     {
       "round_id": 16,
       "best_y": -0.4092128632077454,
       "n_obs": 146,
-      "rf_fit_time": 0.3331091000000015,
+      "rf_fit_time": 0.4195398000301793,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 6.326248694676906e-05,
+      "mean_eval_time": 6.598749314434826e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 13.117517899954692
+      "cumulative_wall_time": 22.262898199958727
     },
     {
       "round_id": 17,
       "best_y": -0.4085180804662869,
       "n_obs": 154,
-      "rf_fit_time": 0.3234734000870958,
+      "rf_fit_time": 0.5124150000046939,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 6.328748713713139e-05,
+      "mean_eval_time": 7.931250729598105e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 13.532387900049798
+      "cumulative_wall_time": 22.910431999946013
     },
     {
       "round_id": 18,
       "best_y": -0.4085180804662869,
       "n_obs": 162,
-      "rf_fit_time": 0.3115203999914229,
+      "rf_fit_time": 0.5974348000017926,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 5.1437498768791556e-05,
+      "mean_eval_time": 9.91374981822446e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 13.917060800013132
+      "cumulative_wall_time": 23.693492099992
     },
     {
       "round_id": 19,
       "best_y": -0.4085180804662869,
       "n_obs": 170,
-      "rf_fit_time": 0.3218854999868199,
+      "rf_fit_time": 0.574612999917008,
       "gp_fit_time": 0.0,
       "gp_was_refreshed": false,
-      "mean_eval_time": 4.316249396651983e-05,
+      "mean_eval_time": 7.868747343309224e-05,
       "n_rf_candidates": 6,
       "n_gp_candidates": 2,
-      "cumulative_wall_time": 14.304294800036587
+      "cumulative_wall_time": 24.4165869000135
     }
   ]
 }
