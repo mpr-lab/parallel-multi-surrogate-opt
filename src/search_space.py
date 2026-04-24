@@ -1,76 +1,56 @@
-"""
-Search space definition.
+from __future__ import annotations
 
-A SearchSpace is an axis-aligned box in R^d defined by per-dimension
-lower and upper bounds.  Keeping this in one place ensures that every
-surrogate and every benchmark uses exactly the same definition.
-
-Reproducibility note:
-    sample() requires an explicit numpy Generator (from make_rng) rather
-    than using global random state.  This makes sampling fully reproducible:
-    the same rng seeded with the same value always produces the same points.
-"""
+from typing import Sequence
 
 import numpy as np
 
 
 class SearchSpace:
-    """
-    An axis-aligned box in R^d defined by per-dimension lower and upper bounds.
 
-    Example:
-        # 2D Branin search space
-        space = SearchSpace([(-5.0, 10.0), (0.0, 15.0)])
-        rng = make_rng(42)
-        X = space.sample(100, rng)   # shape (100, 2), always the same 100 points
-    """
 
-    def __init__(self, bounds: list[tuple[float, float]]):
-        """
-        Args:
-            bounds: List of (low, high) pairs, one per dimension.
-                    E.g. [(-5.0, 10.0), (0.0, 15.0)] for 2D Branin.
-        """
-        self.bounds = bounds
-        self.dim    = len(bounds)
-        self.lows   = np.array([b[0] for b in bounds], dtype=float)
-        self.highs  = np.array([b[1] for b in bounds], dtype=float)
+    def __init__(self, bounds: Sequence[Sequence[float]]) -> None:
+        if not bounds:
+            raise ValueError("bounds must not be empty")
+
+        validated_bounds: list[tuple[float, float]] = []
+
+        for i, bound in enumerate(bounds):
+            if len(bound) != 2:
+                raise ValueError(
+                    f"Each bound must have exactly 2 values, but bounds[{i}] = {bound}"
+                )
+
+            low, high = bound
+            low = float(low)
+            high = float(high)
+
+            if low >= high:
+                raise ValueError(
+                    f"Each bound must satisfy low < high, but bounds[{i}] = ({low}, {high})"
+                )
+
+            validated_bounds.append((low, high))
+
+        self.bounds = validated_bounds
+        self.dim = len(validated_bounds)
 
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
-        """
-        Draw n points uniformly at random from the search space.
+        if not isinstance(n, int) or n <= 0:
+            raise ValueError(f"n must be a positive integer, got {n}")
 
-        We require an explicit rng rather than using global random state
-        so the caller controls exactly which random numbers are consumed.
-        This is essential for reproducibility: the same rng seeded with
-        the same value will always produce the same sample.
+        if not isinstance(rng, np.random.Generator):
+            raise TypeError(
+                "rng must be an instance of numpy.random.Generator"
+            )
 
-        Args:
-            n:   Number of points to sample.
-            rng: A numpy Generator from make_rng(seed).  Do NOT pass
-                 np.random as the rng — use make_rng() explicitly.
+        # Separate lows and highs into arrays of shape (dim,)
+        lows = np.array([low for low, _ in self.bounds], dtype=float)
+        highs = np.array([high for _, high in self.bounds], dtype=float)
 
-        Returns:
-            Array of shape (n, dim).  Every row is a point in the space.
-        """
-        # rng.random() gives uniform [0, 1) — scale to [low, high)
-        unit = rng.random((n, self.dim))
-        return self.lows + unit * (self.highs - self.lows)
+        # NumPy broadcasts lows/highs across n samples, producing shape (n, dim)
+        samples = rng.uniform(low=lows, high=highs, size=(n, self.dim))
 
-    def clip(self, X: np.ndarray) -> np.ndarray:
-        """
-        Clip an array of points to lie within the search space bounds.
-
-        Useful after any operation that might push a point outside the
-        bounds (e.g., GP acquisition function optimization restarts).
-
-        Args:
-            X: Array of shape (n, dim) or (dim,).
-
-        Returns:
-            Clipped array, same shape as input.
-        """
-        return np.clip(X, self.lows, self.highs)
+        return samples
 
     def __repr__(self) -> str:
         return f"SearchSpace(dim={self.dim}, bounds={self.bounds})"
