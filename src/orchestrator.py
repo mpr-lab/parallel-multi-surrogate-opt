@@ -5,6 +5,7 @@ import numpy as np
 
 from candidate_merge import merge_candidates
 from datastore import DataStore
+from metrics import MetricsLog
 from search_space import SearchSpace
 from surrogates.base import BaseSurrogate
 from worker_pool import WorkerPool
@@ -56,7 +57,7 @@ class Orchestrator:
         self.experiment_seed = experiment_seed
 
         self._current_best: float | None = None
-        self.round_metrics: list[dict] = []
+        self.metrics = MetricsLog()
 
     def run(self) -> None:
         self._current_best = self.datastore.best_y
@@ -85,15 +86,10 @@ class Orchestrator:
 
         self._append_results(results)
 
-        self.round_metrics.append(
-            {
-                "round_id": 0,
-                "fit_time": {},
-                "propose_time": {},
-                "merge_time": 0.0,
-                "eval_time": eval_time,
-                "round_total_time": time.perf_counter() - round_start,
-            }
+        self.metrics.record_warm_start(
+            n_initial=self.n_initial,
+            evaluation_wall_time=eval_time,
+            total_round_wall_time=time.perf_counter() - round_start,
         )
 
     # -- one optimization round ----------------------------------------------
@@ -126,7 +122,6 @@ class Orchestrator:
         )
         propose_b_time = time.perf_counter() - propose_start
 
-        merge_start = time.perf_counter()
         batch = merge_candidates(
             {
                 self.surrogate_a.name: proposals_a,
@@ -137,7 +132,6 @@ class Orchestrator:
                 self.surrogate_b.name: self.n_proposals_per_surrogate,
             },
         )
-        merge_time = time.perf_counter() - merge_start
 
         eval_start = time.perf_counter()
         results = self.worker_pool.evaluate(batch, self.objective_fn, round_id)
@@ -145,21 +139,26 @@ class Orchestrator:
 
         self._append_results(results)
 
-        self.round_metrics.append(
-            {
-                "round_id": round_id,
-                "fit_time": {
-                    self.surrogate_a.name: fit_a_time,
-                    self.surrogate_b.name: fit_b_time,
-                },
-                "propose_time": {
-                    self.surrogate_a.name: propose_a_time,
-                    self.surrogate_b.name: propose_b_time,
-                },
-                "merge_time": merge_time,
-                "eval_time": eval_time,
-                "round_total_time": time.perf_counter() - round_start,
-            }
+        candidates_from_a = sum(
+            1 for entry in batch if entry["surrogate_source"] == self.surrogate_a.name
+        )
+        candidates_from_b = sum(
+            1 for entry in batch if entry["surrogate_source"] == self.surrogate_b.name
+        )
+
+        self.metrics.record_round(
+            round_id=round_id,
+            best_y_so_far=self._current_best,
+            surrogate_a_name=self.surrogate_a.name,
+            surrogate_b_name=self.surrogate_b.name,
+            surrogate_a_fit_time=fit_a_time,
+            surrogate_b_fit_time=fit_b_time,
+            surrogate_a_proposal_time=propose_a_time,
+            surrogate_b_proposal_time=propose_b_time,
+            surrogate_a_candidates_contributed=candidates_from_a,
+            surrogate_b_candidates_contributed=candidates_from_b,
+            evaluation_wall_time=eval_time,
+            total_round_wall_time=time.perf_counter() - round_start,
         )
 
     # -- shared helpers -------------------------------------------------------

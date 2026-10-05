@@ -218,3 +218,42 @@ def test_rejects_surrogates_with_duplicate_names():
             surrogate_a=_CountingDummySurrogate("same_name"),
             surrogate_b=_CountingDummySurrogate("same_name"),
         )
+
+
+def test_metrics_log_populated_correctly():
+    surrogate_a = _CountingDummySurrogate("surrogate_a")
+    surrogate_b = _CountingDummySurrogate("surrogate_b")
+    orch = _build_orchestrator(
+        n_initial=4, n_proposals_per_surrogate=3, n_rounds=3,
+        surrogate_a=surrogate_a, surrogate_b=surrogate_b,
+    )
+
+    orch.run()
+
+    assert orch.metrics.warm_start == {
+        "round_id": 0,
+        "n_initial": 4,
+        "evaluation_wall_time": orch.metrics.warm_start["evaluation_wall_time"],
+        "total_round_wall_time": orch.metrics.warm_start["total_round_wall_time"],
+    }
+    assert orch.metrics.warm_start["evaluation_wall_time"] >= 0.0
+
+    assert len(orch.metrics.rounds) == 3
+    for round_id, record in enumerate(orch.metrics.rounds, start=1):
+        assert record["round_id"] == round_id
+        assert record["surrogate_a_name"] == "surrogate_a"
+        assert record["surrogate_b_name"] == "surrogate_b"
+        assert record["surrogate_a_candidates_contributed"] == 3
+        assert record["surrogate_b_candidates_contributed"] == 3
+        for time_field in (
+            "surrogate_a_fit_time",
+            "surrogate_b_fit_time",
+            "surrogate_a_proposal_time",
+            "surrogate_b_proposal_time",
+            "evaluation_wall_time",
+            "total_round_wall_time",
+        ):
+            assert record[time_field] >= 0.0
+
+    # best_y_so_far must track DataStore.best_y at the time each round finished.
+    assert orch.metrics.rounds[-1]["best_y_so_far"] == orch.datastore.best_y
