@@ -62,6 +62,18 @@ def test_batch_append_preserves_order():
     np.testing.assert_array_equal(X, [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
 
 
+def test_get_all_returns_copies_of_stored_records():
+    store = DataStore()
+    store.append(make_record(x=[1.0], y=2.0, improved_global_best=True))
+
+    all_records = store.get_all()
+    all_records[0]["y"] = 999.0  # mutating the copy must not affect the store
+
+    assert len(all_records) == 1
+    assert all_records[0]["improved_global_best"] is True
+    assert store.best_y == 2.0
+
+
 def test_get_X_y_shape_and_content():
     store = DataStore()
     store.append_batch(

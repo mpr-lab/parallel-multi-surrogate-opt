@@ -51,6 +51,11 @@ class DataStore:
         for record in records:
             self.append(record)
 
+    def get_all(self) -> list[dict]:
+        """Full records, including metadata, for metrics/analysis. Returns
+        shallow copies so callers can't mutate internal state."""
+        return [dict(r) for r in self._records]
+
     def get_X_y(self) -> tuple[np.ndarray, np.ndarray]:
         if not self._records:
             return np.empty((0, 0)), np.empty((0,))
