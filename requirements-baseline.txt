@@ -1,0 +1,9 @@
+-r requirements.txt
+# botorch pulls in torch + gpytorch. On platforms without a numpy-2.x
+# compatible torch wheel (e.g. this project's Intel macOS dev environment,
+# where PyPI only ships torch<=2.2.2), numpy must be pinned below 2.0 to
+# avoid an ABI crash on import. If your platform has newer torch wheels
+# (e.g. Linux/Unity), this pin may not be necessary -- check `pip index
+# versions torch` for your platform before assuming you need it.
+numpy<2
+botorch
