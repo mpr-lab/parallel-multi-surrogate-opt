@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+import orchestrator as orchestrator_module
 from candidate_merge import SearchSpaceExhaustedError, merge_candidates
 from datastore import DataStore
 from objectives.classical_ml import (
@@ -171,3 +172,91 @@ def test_deterministic_given_fixed_experiment_seed():
     assert [r["x"] for r in records_a] == [r["x"] for r in records_b]
     assert [r["y"] for r in records_a] == [r["y"] for r in records_b]
     assert [r["decoded_params"] for r in records_a] == [r["decoded_params"] for r in records_b]
+
+
+# -- derived proposal-count (oversample) formula --------------------------
+
+
+def _orchestrator_with_parameter_space(parameter_space):
+    return Orchestrator(
+        search_space=SearchSpace(bounds=parameter_space.bounds),
+        objective_fn=lambda params, seed=None: 0.0,
+        surrogate_a=GaussianProcessSurrogate(random_state=0),
+        surrogate_b=RandomForestSurrogate(random_state=0),
+        datastore=DataStore(),
+        worker_pool=WorkerPool(n_workers=1, experiment_seed=0),
+        n_initial=1,
+        n_proposals_per_surrogate=1,
+        n_rounds=1,
+        experiment_seed=0,
+        parameter_space=parameter_space,
+    )
+
+
+def test_propose_count_scales_with_total_configurations_not_a_flat_constant():
+    factor = orchestrator_module._PROPOSAL_OVERSAMPLE_FACTOR
+    small = _orchestrator_with_parameter_space(TINY_SPACE)  # total_configurations == 2
+    large = _orchestrator_with_parameter_space(SPACE)  # total_configurations == 8
+
+    small_count = small._propose_count()
+    large_count = large._propose_count()
+
+    assert small_count == TINY_SPACE.total_configurations * factor
+    assert large_count == SPACE.total_configurations * factor
+    # The whole point: a bigger space gets proportionally more requested,
+    # a smaller space gets proportionally less -- not the same flat number.
+    assert small_count < large_count
+    assert large_count == 4 * small_count  # 8 configs / 2 configs == 4x
+
+
+def test_propose_count_ratio_to_space_size_is_always_the_same_fixed_factor():
+    # "Never request more than useful relative to total_configurations":
+    # the ratio is always exactly the documented factor, for any space
+    # size -- not an absolute cap that becomes disproportionate for a
+    # small space or insufficient for a larger one.
+    factor = orchestrator_module._PROPOSAL_OVERSAMPLE_FACTOR
+    for space in (TINY_SPACE, SPACE):
+        orch = _orchestrator_with_parameter_space(space)
+        assert orch._propose_count() == space.total_configurations * factor
+
+
+def test_propose_count_is_unaffected_for_continuous_benchmarks():
+    orch = Orchestrator(
+        search_space=SearchSpace(bounds=[(0.0, 1.0), (0.0, 1.0)]),
+        objective_fn=lambda x, seed=None: 0.0,
+        surrogate_a=GaussianProcessSurrogate(random_state=0),
+        surrogate_b=RandomForestSurrogate(random_state=0),
+        datastore=DataStore(),
+        worker_pool=WorkerPool(n_workers=1, experiment_seed=0),
+        n_initial=1,
+        n_proposals_per_surrogate=3,
+        n_rounds=1,
+        experiment_seed=0,
+        parameter_space=None,
+    )
+    assert orch._propose_count() == 3  # exactly n_proposals_per_surrogate, unchanged
+
+
+def test_propose_count_is_deterministic():
+    orch_a = _orchestrator_with_parameter_space(SPACE)
+    orch_b = _orchestrator_with_parameter_space(SPACE)
+    assert orch_a._propose_count() == orch_b._propose_count()
+
+
+def test_oversampled_propose_does_not_change_surrogate_ranking_order():
+    # The oversample fix changes how MANY candidates are requested, never
+    # how a surrogate ranks them: still strictly by descending predicted
+    # score, regardless of how large the request is.
+    X = np.array([[0.0], [0.5], [1.0]])
+    y = np.array([0.0, 5.0, 1.0])
+    surrogate = RandomForestSurrogate(n_estimators=20, pool_size=50, random_state=0)
+    surrogate.fit(X, y)
+
+    small_request = surrogate.propose(SearchSpace(bounds=[(0.0, 1.0)]), 5, np.random.default_rng(0))
+    large_request = surrogate.propose(
+        SearchSpace(bounds=[(0.0, 1.0)]), TINY_SPACE.total_configurations * 20, np.random.default_rng(0)
+    )
+
+    for candidates in (small_request, large_request):
+        predicted = surrogate._model.predict(candidates)
+        assert np.all(np.diff(predicted) <= 1e-9)  # still non-increasing, best-first

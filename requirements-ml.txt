@@ -1,5 +1,18 @@
 -r requirements.txt
-# Classical ML benchmarks: logistic_regression and random_forest need
-# nothing beyond core requirements.txt (scikit-learn is already there).
-# Only the xgboost benchmark needs this file.
+# Classical ML benchmarks: logistic_regression and random_forest against
+# the bundled/synthetic smoke-test datasets need nothing beyond core
+# requirements.txt (scikit-learn is already there).
+#
+# xgboost: only needed for the xgboost benchmark.
+# pandas: only needed for the "higgs" dataset (CSV loading); the
+# smoke-test datasets (breast_cancer, synthetic_classification) don't
+# need it.
+#
+# NOTE: if this venv ALSO has requirements-baseline.txt (BoTorch) or
+# requirements-huggingface.txt (torch) installed on a platform pinned to
+# numpy<2 (see those files), installing a recent pandas here can silently
+# upgrade numpy back to 2.x and break torch's import. On such a platform,
+# reinstall the numpy<2 pin after installing this file, e.g.:
+#   pip install -r requirements-ml.txt && pip install "numpy<2" "pandas<2.3"
 xgboost
+pandas

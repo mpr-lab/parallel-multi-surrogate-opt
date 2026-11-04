@@ -156,6 +156,36 @@ def _build_benchmark(
     return SearchSpace(bounds=parameter_space.bounds), objective_fn, parameter_space
 
 
+def _check_finite_space_budget(args: argparse.Namespace) -> None:
+    """Fail fast, before any experiment setup (dataset/model loading
+    included), if the requested evaluation budget cannot possibly fit in
+    a ParameterSpace-backed benchmark's finite configuration space.
+
+    Deliberately a pure registry lookup -- it does not call
+    `_build_benchmark`/`make_objective`, so a oversized budget is
+    rejected before paying for e.g. Hugging Face dataset/model loading.
+    Continuous synthetic benchmarks (no ParameterSpace) have no finite
+    ceiling to check against and are skipped entirely.
+    """
+    if args.benchmark not in PARAMETERIZED_BENCHMARK_REGISTRY:
+        return
+
+    parameter_space = PARAMETERIZED_BENCHMARK_REGISTRY[args.benchmark]["parameter_space"]
+    total_configurations = parameter_space.total_configurations
+    requested_evaluations = args.n_initial + args.n_rounds * args.batch_size
+
+    if requested_evaluations > total_configurations:
+        raise ValueError(
+            f"requested evaluations ({requested_evaluations} = "
+            f"--n-initial {args.n_initial} + --n-rounds {args.n_rounds} * "
+            f"--batch-size {args.batch_size}) exceed the finite parameter "
+            f"space for benchmark '{args.benchmark}' "
+            f"({total_configurations} total unique configurations). "
+            f"Reduce --n-initial, --n-rounds, and/or --batch-size so the "
+            f"total stays at or below {total_configurations}."
+        )
+
+
 def _git_commit_hash() -> str | None:
     try:
         result = subprocess.run(
@@ -244,6 +274,7 @@ def main(argv=None) -> None:
             f"--batch-size must be even for the fixed 50/50 allocation, got {args.batch_size}"
         )
     n_proposals_per_surrogate = args.batch_size // 2
+    _check_finite_space_budget(args)
 
     make_surrogate_a, make_surrogate_b = SURROGATE_PAIR_REGISTRY[args.pair]
     search_space, objective_fn, parameter_space = _build_benchmark(args)

@@ -198,13 +198,42 @@ XGBoost):
 
 - Dataset choice is **explicit** (`--dataset`), never silently assumed by
   an objective function.
-- **No dataset currently shipped in `objectives/classical_ml.py` is the
-  frozen experiment dataset.** `breast_cancer` and
-  `synthetic_classification` are labeled smoke-test-only, both in code
-  comments and CLI help text. The real classical-ML experiment dataset is
-  a separate decision, to be made after reviewing the historical
-  profiling artifacts — do not treat either smoke-test dataset as a
-  stand-in for that decision.
+- **`higgs` is now the frozen real-experiment dataset** for Logistic
+  Regression, Random Forest, and XGBoost, recovered from the historical
+  `hpc-bayes-opt` profiling artifacts (BoTorch Logistic Regression,
+  Optuna Logistic Regression, Optuna XGBoost notebooks — all three loaded
+  it identically and produced real result CSVs). `breast_cancer` and
+  `synthetic_classification` remain smoke-test-only (bundled/synthetic,
+  no download) — never treat either as a stand-in for a real run.
+- **HIGGS loading recipe** (`objectives/classical_ml.py::_load_higgs`):
+  read `HIGGS.csv` (no header, column 0 = label, columns 1: = 28
+  features) from `--data-dir`; take a stratified 50,000-row subsample
+  (`HIGGS_SUBSAMPLE_SIZE`); split 80/20 train/validation
+  (`HIGGS_VALIDATION_FRACTION = 0.2`, the historically-recovered ratio —
+  every other dataset keeps this framework's 0.25 smoke-test default).
+  One shared loader is used identically by all three classical-ML
+  objectives — only Logistic Regression additionally applies a
+  `MinMaxScaler` (fit on train, applied to train+val) on top of that
+  shared data, matching the historical notebooks; Random Forest/XGBoost
+  consume the same split unscaled.
+- **Not auto-downloaded.** The historical notebooks used `kagglehub`
+  (requires Kaggle API credentials); this framework instead requires
+  `HIGGS.csv` to already exist under `--data-dir` and raises a clear,
+  actionable error if it doesn't — never a network call during module
+  import, test collection, or objective construction.
+- **Historical detail recovered but not replicated:** Random Forest was
+  never actually run against HIGGS in the historical repo (its BoTorch/
+  Optuna/DeepHyper notebooks all used `make_classification` or
+  `load_breast_cancer` instead). A DeepHyper template notebook's comments
+  stated the intent that the HIGGS pipeline "should be fully reusable for
+  xgboost and rf," but this was never executed. Using it for RF now is
+  this convention's decision, not a rediscovered historical fact.
+- **Scaler type ambiguity:** two different scalers appear across the
+  historical artifacts — `MinMaxScaler` (BoTorch/Optuna Logistic
+  Regression and Optuna XGBoost, all actually executed) vs
+  `StandardScaler` (the incomplete DeepHyper template). `MinMaxScaler`
+  was chosen since it's what the actually-executed, result-producing runs
+  used.
 - The same dataset, preprocessing, and train/validation split must be used
   for every surrogate pair compared on the same benchmark + seed. The
   split's own randomness is derived from a dedicated sub-seed
@@ -253,12 +282,15 @@ For the Hugging Face benchmark (`distilbert_imdb`):
 - Exact evaluation budget (total real evaluations) for initial pilot runs.
 - Whether worker count for initial pilots is 1 (fully synchronous, simplest
   to debug) or >1 (exercises the parallel path early).
-- The real (non-smoke-test) classical-ML dataset — pending review of
-  historical profiling artifacts (see section N).
-- Whether the real-evaluation budget for a `ParameterSpace`-backed
-  benchmark should be validated against `total_configurations` up front
-  (e.g. reject a budget that must exceed the finite space) rather than
-  only discovered via `SearchSpaceExhaustedError` partway through a run.
-- Whether `_MAX_PROPOSAL_OVERSAMPLE` (currently a fixed constant) should
-  become configurable or derived, given it has no formal decode-coverage
-  guarantee (see `interfaces.md` Open Decisions).
+- ~~The real (non-smoke-test) classical-ML dataset~~ — **resolved**: HIGGS,
+  recovered from historical profiling artifacts (see section N).
+- ~~Whether the real-evaluation budget for a `ParameterSpace`-backed
+  benchmark should be validated against `total_configurations` up
+  front~~ — **resolved**: `run_experiment.py` now rejects
+  `n_initial + n_rounds * batch_size > parameter_space.total_configurations`
+  before building or running the experiment, rather than only discovering
+  it via `SearchSpaceExhaustedError` partway through a run.
+- The propose() oversample factor (`_PROPOSAL_OVERSAMPLE_FACTOR` in
+  `orchestrator.py`, now scaled by `total_configurations` rather than a
+  flat constant) still has no formal decode-coverage guarantee for
+  arbitrary space sizes — see `interfaces.md` Open Decisions.

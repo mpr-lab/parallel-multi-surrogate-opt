@@ -7,8 +7,22 @@ from sklearn.datasets import load_breast_cancer, make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 
 from parameter_space import ChoiceDimension, ParameterSpace
+
+# Historical recipe recovered from hpc-bayes-opt's BoTorch/Optuna Logistic
+# Regression notebooks and the Optuna XGBoost notebook (all three loaded
+# HIGGS identically and produced real result CSVs). Random Forest was
+# never historically run against HIGGS in that repo -- a DeepHyper
+# template notebook's comments state the shared-pipeline intent ("should
+# be fully reusable for xgboost and rf") but it was never completed for
+# RF. Treat this recipe's reuse for RF as this task's explicit decision,
+# not a rediscovered historical fact.
+HIGGS_FILENAME = "HIGGS.csv"
+HIGGS_KAGGLE_DATASET = "erikbiswas/higgs-uci-dataset"  # provenance only -- not auto-downloaded
+HIGGS_SUBSAMPLE_SIZE = 50_000
+HIGGS_VALIDATION_FRACTION = 0.2  # historical 80/20 split, recovered as-is
 
 # Distinct from Orchestrator's role codes (0, 1, 2) -- this is a separate
 # seed namespace scoped to dataset-split derivation only, so dataset-split
@@ -37,15 +51,16 @@ XGBOOST_PARAMETER_SPACE = ParameterSpace(
 )
 
 
-def _load_breast_cancer(seed: int | None) -> tuple[np.ndarray, np.ndarray]:
+def _load_breast_cancer(seed: int | None, data_dir: Path | None) -> tuple[np.ndarray, np.ndarray]:
     """SMOKE-TEST dataset only. Bundled with scikit-learn: no download,
     deterministic by nature. NOT the frozen dataset for real classical-ML
-    experiments -- that choice is still pending a separate review of the
-    historical profiling artifacts."""
+    experiments -- HIGGS is (see _load_higgs)."""
     return load_breast_cancer(return_X_y=True)
 
 
-def _load_synthetic_classification(seed: int | None) -> tuple[np.ndarray, np.ndarray]:
+def _load_synthetic_classification(
+    seed: int | None, data_dir: Path | None
+) -> tuple[np.ndarray, np.ndarray]:
     """SMOKE-TEST dataset only -- see _load_breast_cancer docstring."""
     return make_classification(
         n_samples=500,
@@ -57,19 +72,68 @@ def _load_synthetic_classification(seed: int | None) -> tuple[np.ndarray, np.nda
     )
 
 
+def _load_higgs(seed: int | None, data_dir: Path | None) -> tuple[np.ndarray, np.ndarray]:
+    """The frozen real-experiment dataset for Logistic Regression, Random
+    Forest, and XGBoost (recovered recipe -- see module-level comment and
+    HIGGS_* constants).
+
+    Does NOT auto-download: HIGGS.csv is a multi-GB file and the
+    historical download path (kagglehub) needs Kaggle API credentials,
+    neither of which belongs inside a library import or a test. Download
+    it once yourself (e.g. `kagglehub.dataset_download(HIGGS_KAGGLE_DATASET)`
+    or the Kaggle CLI) and point `--data-dir` at the directory containing
+    HIGGS.csv -- e.g. a path under /work on Unity.
+    """
+    if data_dir is None:
+        raise ValueError(
+            "the 'higgs' dataset requires --data-dir to point at a directory "
+            f"containing {HIGGS_FILENAME} (not downloaded automatically)"
+        )
+
+    higgs_path = Path(data_dir) / HIGGS_FILENAME
+    if not higgs_path.exists():
+        raise FileNotFoundError(
+            f"{higgs_path} not found. Download it once (e.g. "
+            f"kagglehub.dataset_download({HIGGS_KAGGLE_DATASET!r}) or the "
+            f"Kaggle CLI) and place {HIGGS_FILENAME} at --data-dir."
+        )
+
+    import pandas as pd  # lazy: only the higgs path needs pandas
+
+    data = pd.read_csv(higgs_path, header=None)
+    X_full = data.iloc[:, 1:].values
+    y_full = data.iloc[:, 0].values
+
+    subsample_seed = seed if seed is not None else 0
+    X, _, y, _ = train_test_split(
+        X_full,
+        y_full,
+        train_size=min(HIGGS_SUBSAMPLE_SIZE, len(y_full)),
+        random_state=subsample_seed,
+        stratify=y_full,
+    )
+    return X, y
+
+
 # Explicit, named dataset choices -- no dataset is silently assumed.
 #
-# IMPORTANT: both of these are SMOKE-TEST datasets only (bundled/synthetic,
-# no download, fast). Neither is "the" classical-ML experiment dataset --
-# the prior profiling work never froze one, and this module does not
-# invent one either. The actual dataset for the real experiment sweep is
-# a separate decision, to be made after reviewing the historical profiling
-# artifacts, and will be added as its own explicit, named choice here when
-# that decision is made.
-DATASET_LOADERS: dict[str, Callable[[int | None], tuple[np.ndarray, np.ndarray]]] = {
+# "breast_cancer"/"synthetic_classification" are SMOKE-TEST datasets only
+# (bundled/synthetic, no download, fast). "higgs" is the frozen dataset
+# for the real classical-ML experiment sweep (Logistic Regression, Random
+# Forest, XGBoost), recovered from the historical profiling artifacts.
+DATASET_LOADERS: dict[str, Callable[[int | None, Path | None], tuple[np.ndarray, np.ndarray]]] = {
     "breast_cancer": _load_breast_cancer,
     "synthetic_classification": _load_synthetic_classification,
+    "higgs": _load_higgs,
 }
+
+# Per-dataset validation fraction. HIGGS uses the historically-recovered
+# 80/20 split; datasets with no historical split convention keep this
+# framework's own smoke-test default.
+DATASET_VALIDATION_FRACTIONS: dict[str, float] = {
+    "higgs": HIGGS_VALIDATION_FRACTION,
+}
+DEFAULT_VALIDATION_FRACTION = 0.25
 
 # Smoke-test default ONLY -- always pass --dataset explicitly for any run
 # that isn't just exercising the pipeline mechanics.
@@ -96,26 +160,35 @@ def prepare_classical_ml_data(
     dataset: str = DEFAULT_SMOKE_TEST_DATASET,
     seed: int | None = None,
     data_dir: Path | None = None,
-    validation_fraction: float = 0.25,
+    validation_fraction: float | None = None,
 ) -> ClassicalMLData:
-    """Load and deterministically split a dataset ONCE. Called by each
-    make_*_objective factory at experiment-setup time -- never from inside
-    a per-candidate objective call, so this cost is never counted as part
-    of any single candidate's objective-evaluation time.
+    """Load and deterministically split a dataset ONCE -- the one shared
+    pipeline used identically by Logistic Regression, Random Forest, and
+    XGBoost. Called by each make_*_objective factory at experiment-setup
+    time -- never from inside a per-candidate objective call, so this
+    cost is never counted as part of any single candidate's
+    objective-evaluation time.
 
-    `data_dir` is accepted for interface symmetry with the Hugging Face
-    objective's cache_dir, even though the currently bundled/synthetic
-    datasets don't need a path -- kept explicit rather than silently
-    ignored so a future file-backed dataset has an obvious place to plug
-    in.
+    `data_dir` is where a file-backed dataset (currently only "higgs")
+    is read from -- never a hard-coded path, so it can point at e.g.
+    /work on Unity. Ignored by the bundled/synthetic smoke-test datasets.
+
+    `validation_fraction`, if not given, is resolved per-dataset via
+    DATASET_VALIDATION_FRACTIONS (HIGGS uses the historically-recovered
+    0.2; everything else keeps this framework's 0.25 smoke-test default)
+    -- explicitly passing a value always overrides that lookup.
     """
     if dataset not in DATASET_LOADERS:
         raise ValueError(
             f"unknown dataset {dataset!r}, expected one of {sorted(DATASET_LOADERS)}"
         )
+    if validation_fraction is None:
+        validation_fraction = DATASET_VALIDATION_FRACTIONS.get(
+            dataset, DEFAULT_VALIDATION_FRACTION
+        )
 
     split_seed = _derive_dataset_split_seed(seed)
-    X, y = DATASET_LOADERS[dataset](split_seed)
+    X, y = DATASET_LOADERS[dataset](split_seed, data_dir)
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=validation_fraction, random_state=split_seed, stratify=y
     )
@@ -128,6 +201,15 @@ def make_logistic_regression_objective(
     seed: int | None = None,
 ) -> Callable:
     data = prepare_classical_ml_data(dataset, seed, data_dir)
+    # Logistic Regression is scale-sensitive (regularized linear model);
+    # Random Forest/XGBoost are not and are deliberately left unscaled
+    # (see make_random_forest_objective / make_xgboost_objective) -- this
+    # matches the historical HIGGS notebooks, which only ever scaled for
+    # Logistic Regression. Scaling happens once here (factory/setup time),
+    # not inside the per-candidate closure below.
+    scaler = MinMaxScaler()
+    X_train_scaled = scaler.fit_transform(data.X_train)
+    X_val_scaled = scaler.transform(data.X_val)
     # Fixed across every candidate in this run, so the ONLY thing that
     # varies between candidates is the hyperparameters being searched,
     # not incidental model-internal randomness. Deliberately NOT the
@@ -142,8 +224,8 @@ def make_logistic_regression_objective(
             max_iter=1000,
             random_state=model_random_state,
         )
-        model.fit(data.X_train, data.y_train)
-        return float(model.score(data.X_val, data.y_val))
+        model.fit(X_train_scaled, data.y_train)
+        return float(model.score(X_val_scaled, data.y_val))
 
     return objective
 

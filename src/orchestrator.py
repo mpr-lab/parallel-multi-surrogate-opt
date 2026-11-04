@@ -15,11 +15,22 @@ _ROLE_WARM_START = 0
 _ROLE_SURROGATE_A = 1
 _ROLE_SURROGATE_B = 2
 
-# Upper bound on how many candidates to request from propose() when a
-# finite ParameterSpace is active, so decode-aware refill (skipping
-# in-batch AND historical duplicates) has enough ranked headroom without
-# asking for an unbounded pool on a hypothetical huge discrete space.
-_MAX_PROPOSAL_OVERSAMPLE = 500
+# How many times the finite decoded space's own size to request from
+# propose() when a ParameterSpace is active, so decode-aware refill
+# (skipping in-batch AND historical duplicates) has enough ranked
+# headroom. Requesting exactly total_configurations is NOT enough --
+# propose() returns only the top-N of a ranked pool, and the top-N by
+# predicted mean can cluster into a few buckets even when N equals the
+# number of possible buckets (see candidate_merge.py Notes). Scaling with
+# total_configurations (rather than a flat constant) means the oversample
+# size tracks the actual space being searched instead of being either
+# wasteful for a tiny space or insufficient for a larger one.
+#
+# Empirically verified (see conversation/commit history) at factor=20:
+# 0 failures across 50 seeds on an 8-configuration space and 10 seeds on
+# a 9-configuration space, versus ~50% spurious failures with no
+# oversampling at all.
+_PROPOSAL_OVERSAMPLE_FACTOR = 20
 
 
 class Orchestrator:
@@ -219,11 +230,12 @@ class Orchestrator:
         # bucket is represented, since the top-N by predicted mean can
         # still cluster into a few buckets even when N == the number of
         # possible buckets (the discarded remainder of the pool may have
-        # covered the rest). Request the full oversample cap regardless,
-        # which also grows the underlying pool for every current
-        # concrete surrogate (pool_size = max(configured pool_size, N)),
-        # improving decode-coverage, not just list length.
-        return _MAX_PROPOSAL_OVERSAMPLE
+        # covered the rest). Scale the request with the space's own size
+        # instead of a flat constant -- this also grows the underlying
+        # pool for every current concrete surrogate
+        # (pool_size = max(configured pool_size, N)), improving
+        # decode-coverage, not just list length.
+        return self.parameter_space.total_configurations * _PROPOSAL_OVERSAMPLE_FACTOR
 
     def _make_rng(self, role: int, round_id: int) -> np.random.Generator:
         if self.experiment_seed is None:

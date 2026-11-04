@@ -581,12 +581,15 @@ instead of introducing a second naming scheme.
 - Naming convention for `surrogate_source` values (literal class name,
   user-supplied experiment label, or a fixed `"surrogate_a"`/`"surrogate_b"`
   role label independent of the underlying model).
-- `_MAX_PROPOSAL_OVERSAMPLE` (currently a fixed constant, 500, in
-  `orchestrator.py`) is an empirically-chosen cap, not a derived or
-  configurable value. Whether it should scale with `total_configurations`,
-  be CLI-configurable, or stay a fixed constant is unresolved — it was
-  sized to clear the current ML parameter spaces (6-9 configurations)
-  reliably, not derived from a formal coverage guarantee.
+- `_PROPOSAL_OVERSAMPLE_FACTOR` (`orchestrator.py`) scales the propose()
+  request with `total_configurations`
+  (`propose_n = total_configurations * _PROPOSAL_OVERSAMPLE_FACTOR`),
+  replacing an earlier flat constant. The factor itself (20) is still an
+  empirically-chosen value, not derived from a formal coverage guarantee
+  — verified by seed sweeps on 8- and 9-configuration spaces, not proven
+  for arbitrary space sizes. Whether it should be CLI-configurable, or
+  whether a non-linear (e.g. coupon-collector-style) scaling would be
+  more robust for much larger finite spaces, is unresolved.
 - There is no formal guarantee that oversampling `propose()` actually
   covers every bucket of a finite `ParameterSpace` — it empirically works
   for the current small discrete spaces (verified across many seeds) but

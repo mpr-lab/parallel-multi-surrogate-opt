@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import run_experiment
 from parameter_space import ParameterSpace
 
@@ -90,3 +92,79 @@ def test_cli_runs_random_forest_benchmark_end_to_end(tmp_path):
     header = candidate_lines[0].split(",")
     assert "param_n_estimators" in header
     assert "param_max_depth" in header
+
+
+# -- finite-space budget pre-check ----------------------------------------
+
+
+def test_budget_precheck_rejects_requested_evaluations_exceeding_space_size():
+    # logistic_regression's ParameterSpace has 4 * 2 = 8 configurations.
+    args = run_experiment.parse_args(
+        [
+            "--benchmark", "logistic_regression", "--pair", "gp_rf", "--seed", "0",
+            "--n-initial", "5", "--n-rounds", "3", "--batch-size", "2",  # 5 + 3*2 = 11 > 8
+        ]
+    )
+    with pytest.raises(ValueError) as exc_info:
+        run_experiment._check_finite_space_budget(args)
+
+    message = str(exc_info.value)
+    assert "11" in message  # requested evaluations
+    assert "8" in message  # total unique configurations
+    assert "--n-initial" in message and "--n-rounds" in message and "--batch-size" in message
+
+
+def test_budget_precheck_allows_exact_fit_budget():
+    args = run_experiment.parse_args(
+        [
+            "--benchmark", "logistic_regression", "--pair", "gp_rf", "--seed", "0",
+            "--n-initial", "4", "--n-rounds", "2", "--batch-size", "2",  # 4 + 2*2 = 8 == 8
+        ]
+    )
+    run_experiment._check_finite_space_budget(args)  # must not raise
+
+
+def test_budget_precheck_allows_under_budget():
+    args = run_experiment.parse_args(
+        [
+            "--benchmark", "logistic_regression", "--pair", "gp_rf", "--seed", "0",
+            "--n-initial", "3", "--n-rounds", "1", "--batch-size", "2",  # 3 + 2 = 5 < 8
+        ]
+    )
+    run_experiment._check_finite_space_budget(args)  # must not raise
+
+
+@pytest.mark.parametrize("benchmark", ["branin", "hartmann6", "rastrigin"])
+def test_budget_precheck_skips_continuous_synthetic_benchmarks(benchmark):
+    args = run_experiment.parse_args(
+        [
+            "--benchmark", benchmark, "--pair", "gp_rf", "--seed", "0",
+            # Deliberately enormous -- must still pass, no finite ceiling exists.
+            "--n-initial", "10000", "--n-rounds", "10000", "--batch-size", "10000",
+        ]
+    )
+    run_experiment._check_finite_space_budget(args)  # must not raise
+
+
+def test_cli_rejects_over_budget_run_before_building_benchmark(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--benchmark", "logistic_regression",
+            "--pair", "gp_rf",
+            "--seed", "0",
+            "--dataset", "synthetic_classification",
+            "--n-initial", "5",
+            "--n-rounds", "3",
+            "--batch-size", "2",
+            "--output-dir", str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode != 0
+    assert "exceed the finite parameter space" in result.stderr
+    # No run directory should have been created -- it failed before any
+    # experiment setup (dataset loading included).
+    assert not any(tmp_path.iterdir())
