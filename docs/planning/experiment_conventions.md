@@ -102,6 +102,21 @@ responsible for deduplication and refilling from the next-ranked unused
 candidate (see `interfaces.md` section 5). This is enforced at the merge
 layer, not by the surrogates or the WorkerPool.
 
+**Discrete/categorical workloads (ParameterSpace, `interfaces.md` §1a):**
+duplication must be judged on the **decoded configuration**, not the raw
+numeric vector — two numerically different proposals that decode to the
+same configuration are the same real experiment and must not both be
+evaluated. This extends across the whole run, not just one batch: a
+configuration already evaluated in an earlier round (or warm start) must
+not be silently re-evaluated as if new in a later round. `CandidateMerge`
+takes the Orchestrator's running set of already-evaluated decoded
+configurations for exactly this reason.
+
+If the finite decoded configuration space has genuinely been exhausted
+(every possible configuration already evaluated), the framework must say
+so explicitly (`SearchSpaceExhaustedError`) rather than raising a generic
+collision error or looping indefinitely trying to find something new.
+
 ---
 
 ### I. Per-surrogate attribution
@@ -156,6 +171,9 @@ The currently planned first benchmark set is:
 - Hartmann6
 - Rastrigin
 - Logistic Regression
+- Random Forest
+- XGBoost
+- DistilBERT fine-tuning on IMDB (`distilbert_imdb`)
 
 This set is intentionally not expanded further at this stage. Adding
 benchmarks is a later decision, not part of Sprint 0.
@@ -173,6 +191,54 @@ first.
 
 ---
 
+### N. Classical-ML / Hugging Face dataset and preprocessing reproducibility
+
+For the classical-ML benchmarks (Logistic Regression, Random Forest,
+XGBoost):
+
+- Dataset choice is **explicit** (`--dataset`), never silently assumed by
+  an objective function.
+- **No dataset currently shipped in `objectives/classical_ml.py` is the
+  frozen experiment dataset.** `breast_cancer` and
+  `synthetic_classification` are labeled smoke-test-only, both in code
+  comments and CLI help text. The real classical-ML experiment dataset is
+  a separate decision, to be made after reviewing the historical
+  profiling artifacts — do not treat either smoke-test dataset as a
+  stand-in for that decision.
+- The same dataset, preprocessing, and train/validation split must be used
+  for every surrogate pair compared on the same benchmark + seed. The
+  split's own randomness is derived from a dedicated sub-seed
+  (`SeedSequence([experiment_seed, ROLE_DATASET_SPLIT])`), independent of
+  warm-start/propose sub-seeds, so dataset-split determinism never
+  collides with search-randomness.
+- Dataset/model loading happens once per experiment (inside the
+  `make_*_objective` factory, called before `Orchestrator.run()`), not
+  once per candidate — this is also what keeps setup cost out of
+  WorkerPool's per-candidate timing (`interfaces.md` §2 Notes).
+
+For the Hugging Face benchmark (`distilbert_imdb`):
+
+- Model/dataset identity, subset sizes, max token length, and epoch count
+  are fixed by the historical spec (`distilbert-base-uncased` / `imdb`,
+  2000 train / 1000 eval examples, max length 128, 1 epoch) — not
+  silently varied.
+- `learning_rate`/`batch_size` use the **exact historical grid**
+  (`{1e-5, 3e-5, 1e-4}` x `{8, 16}`), not an approximated or re-derived one.
+- Every candidate evaluation starts from a fresh pretrained model (trials
+  are independent) — only dataset/tokenizer preparation is reused across
+  candidates, never the trained model weights.
+- `y = -eval_loss`, per the framework's higher-is-better convention
+  (`interfaces.md` §2) — the historical executable returned `eval_loss`
+  directly (despite one comment incorrectly mentioning accuracy); this
+  framework negates it at the objective boundary like every other
+  naturally-minimized benchmark.
+- Cache/output directories are explicit CLI/config options
+  (`--cache-dir`, `--model-output-dir`), never a hard-coded path — so a
+  run can point them at `/work/...` on an HPC cluster without any library
+  code knowing that path exists.
+
+---
+
 ## Open Decisions Before Implementation
 
 - Exact method for deriving deterministic sub-seeds from
@@ -187,3 +253,12 @@ first.
 - Exact evaluation budget (total real evaluations) for initial pilot runs.
 - Whether worker count for initial pilots is 1 (fully synchronous, simplest
   to debug) or >1 (exercises the parallel path early).
+- The real (non-smoke-test) classical-ML dataset — pending review of
+  historical profiling artifacts (see section N).
+- Whether the real-evaluation budget for a `ParameterSpace`-backed
+  benchmark should be validated against `total_configurations` up front
+  (e.g. reject a budget that must exceed the finite space) rather than
+  only discovered via `SearchSpaceExhaustedError` partway through a run.
+- Whether `_MAX_PROPOSAL_OVERSAMPLE` (currently a fixed constant) should
+  become configurable or derived, given it has no formal decode-coverage
+  guarantee (see `interfaces.md` Open Decisions).

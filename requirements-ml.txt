@@ -1,0 +1,5 @@
+-r requirements.txt
+# Classical ML benchmarks: logistic_regression and random_forest need
+# nothing beyond core requirements.txt (scikit-learn is already there).
+# Only the xgboost benchmark needs this file.
+xgboost

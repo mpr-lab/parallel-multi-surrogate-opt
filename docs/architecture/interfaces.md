@@ -7,8 +7,10 @@ first.
 
 Scope constraints that apply to every section below:
 
-- Continuous, box-bounded search spaces only. No categorical/conditional
-  spaces yet.
+- `SearchSpace` itself models continuous, box-bounded spaces only.
+  Integer/discrete/categorical parameters are handled by a separate,
+  optional layer (`ParameterSpace`, §1a) that sits *in front of*
+  `SearchSpace` — it never gains categorical/conditional logic itself.
 - The framework always maximizes. Any benchmark that is naturally minimized
   is transformed at the objective boundary.
 - Synchronous rounds only: a batch must finish evaluating before the next
@@ -54,8 +56,95 @@ class SearchSpace:
 - `rng` is always passed in explicitly, never created or seeded inside the
   class. This keeps all randomness traceable to the single experiment seed
   (see experiment conventions, section G).
-- No validation logic beyond box bounds is in scope yet (no conditional
-  parameters, no integer/categorical dimensions).
+- No validation logic beyond box bounds is in scope (no conditional
+  parameters, no integer/categorical dimensions) — `SearchSpace` itself
+  stays exactly this simple forever; mixed parameter types are handled by
+  `ParameterSpace` (§1a) sitting in front of it, never by extending this
+  class.
+
+---
+
+## 1a. ParameterSpace (optional numeric-vector <-> decoded-config layer)
+
+### Responsibility
+Provide the **one canonical encoding/decoding system** between the raw
+numeric vector surrogates/`SearchSpace` operate on and the decoded,
+meaningful configuration an objective actually receives (e.g.
+`{"C": 1, "penalty": "l2"}` for Logistic Regression). Covers integers,
+discrete numeric choices, and categorical choices with a single mechanism
+— all three are "pick one of N options" underneath, so there is no need
+for three separate dimension types.
+
+This is entirely optional and additive: every synthetic benchmark
+(Branin/Hartmann6/Rastrigin) has no `ParameterSpace` at all and is
+completely unaffected by this layer existing.
+
+### Interface
+
+```python
+@dataclass(frozen=True)
+class ChoiceDimension:
+    name: str
+    choices: Sequence[Any]
+
+    def decode(self, raw_value: float) -> Any:
+        """Map a raw value in [0, 1) to one of `choices`."""
+        ...
+
+    def encode(self, value: Any) -> float:
+        """Inverse: a representative raw value for a given choice."""
+        ...
+
+
+class ParameterSpace:
+    def __init__(self, dimensions: list[ChoiceDimension]): ...
+
+    @property
+    def dim(self) -> int: ...
+
+    @property
+    def bounds(self) -> list[tuple[float, float]]:
+        """Always [(0.0, 1.0)] * dim -- this is what gets handed to the
+        unmodified SearchSpace; surrogates only ever see this unit-cube
+        encoding, never the decoded values."""
+        ...
+
+    @property
+    def total_configurations(self) -> int:
+        """Product of each dimension's choice count -- the exact size of
+        the entire finite decoded configuration space."""
+        ...
+
+    def decode(self, x: np.ndarray) -> dict[str, Any]: ...
+    def encode(self, params: dict[str, Any]) -> np.ndarray: ...
+```
+
+### How it threads through the pipeline
+- `Orchestrator` takes an optional `parameter_space: ParameterSpace | None`
+  constructor argument (default `None` — byte-for-byte the pre-existing
+  behavior). When set:
+  - `SearchSpace` is built from `parameter_space.bounds` (always the unit
+    cube), so surrogates fit/propose on a fixed numeric representation
+    exactly as before — they are never aware decoding exists.
+  - Every candidate (warm-start and round-proposed) carries an extra
+    `decoded_params` dict alongside its raw numeric `candidate`/`x`.
+    `DataStore`'s `x` column is always the raw numeric vector;
+    `decoded_params` rides along as ordinary extra metadata.
+  - The *objective function* receives `decoded_params`, not the raw
+    vector, when one is present (see §2 below) — surrogates see numbers,
+    objectives see meaning.
+- `CandidateMerge` (§5) deduplicates on the decoded configuration, not the
+  raw vector, when a `decode_fn` is given — see §5 for the full
+  collision/refill/exhaustion semantics.
+
+### Notes
+- No `ContinuousDimension` type exists yet — every current ML/HF
+  parameter is a discrete grid. Adding one (identity decode) would be
+  straightforward if a genuinely continuous ML hyperparameter is ever
+  needed, but is not built speculatively.
+- `total_configurations` is what lets `CandidateMerge` distinguish "the
+  entire finite space has genuinely been evaluated" from "this specific
+  proposal list just didn't happen to cover something new" (§5).
 
 ---
 
@@ -89,6 +178,16 @@ was a minimization problem.
 - `seed` is optional because not every benchmark is stochastic (Branin,
   Hartmann6, Rastrigin are deterministic; a benchmark that trains a model on
   resampled data would use `seed`).
+- When a `ParameterSpace` is in play (§1a), the first argument is the
+  **decoded parameter dict**, not the raw numeric vector — e.g.
+  `def objective(params: dict, seed=None) -> float`. This is still the
+  same single-callable contract, just with a dict instead of an ndarray
+  as the "configuration" being scored. Classical-ML/HF objectives are
+  factories (`make_logistic_regression_objective(...) -> Callable`) that
+  do one-time dataset/model setup *before* returning this callable, so
+  that setup cost is never counted inside any single candidate's
+  objective-evaluation timing (WorkerPool's `eval_start_time`/
+  `eval_end_time` wrap only the returned closure's own body).
 
 ---
 
@@ -231,6 +330,18 @@ next-ranked unused candidate — deterministically, with no adaptive logic.
 - `allocation: dict[str, int]` — how many slots each source is entitled to
   in the final batch (fixed per round; 50/50 for the two-surrogate case per
   experiment conventions).
+- `decode_fn: Callable[[np.ndarray], dict] | None = None` — optional (see
+  §1a). When `None` (every synthetic benchmark), everything below about
+  decoding/history/exhaustion is inert and behavior is exactly the v0
+  raw-numeric-dedup design.
+- `evaluated_configs: set[tuple] | None = None` — canonical decoded-config
+  keys already evaluated in prior rounds/warm start (supplied by
+  Orchestrator from its running history). Only meaningful when `decode_fn`
+  is given.
+- `total_configurations: int | None = None` — size of the entire finite
+  decoded space (`ParameterSpace.total_configurations`). Only meaningful
+  when `decode_fn` is given; lets this function distinguish true
+  exhaustion from an unlucky proposal list (see Behavior, below).
 
 ### Output
 A list of records, one per batch slot:
@@ -240,26 +351,54 @@ A list of records, one per batch slot:
     "candidate": np.ndarray,              # shape (dim,)
     "surrogate_source": str,
     "candidate_rank_within_source": int,  # 0-indexed rank in that source's original proposal list
+    "decoded_params": dict,               # only present when decode_fn was given
 }
 ```
 
 ### Behavior (v0, fixed and deterministic)
 1. Walk each source's allocation in rank order, taking its top-ranked
    unused candidates first.
-2. If a candidate is an exact duplicate of one already placed in the batch
-   (by any source, including itself), skip it and take that source's next-
-   ranked candidate instead — repeat until the slot is filled or that
-   source's proposal list is exhausted.
-3. No randomness is introduced inside merge. Any necessary tie-break is
+2. **Duplicate test.** With no `decode_fn`: a candidate is a duplicate if
+   its raw numeric vector exactly matches one already placed in the batch.
+   With a `decode_fn`: a candidate is a duplicate if its **decoded
+   configuration** matches one already placed in the batch, OR one already
+   present in `evaluated_configs` (i.e. already evaluated in a prior round
+   or warm start) — so a numeric vector that happens to decode to a
+   configuration the framework already knows the answer to is skipped just
+   like an in-batch duplicate, never silently re-evaluated as if new.
+3. On a duplicate, skip it and take that source's next-ranked candidate
+   instead — repeat until the slot is filled or that source's proposal
+   list is exhausted.
+4. If a source's list is exhausted before its allocation is filled:
+   - If `decode_fn` and `total_configurations` are both given, and the
+     number of distinct configurations already used (history + this
+     batch) has reached `total_configurations`, every possible
+     configuration has genuinely been evaluated — raise
+     `SearchSpaceExhaustedError` (a `ValueError` subclass), naming the
+     real, provable cause.
+   - Otherwise, raise a plain `ValueError` — the proposal list just
+     wasn't long/lucky enough, even though unevaluated configurations
+     likely exist elsewhere. This is Orchestrator's problem to reduce
+     (by requesting a longer ranked list from `propose()`), not something
+     this function can fix by inventing candidates.
+5. No randomness is introduced inside merge. Any necessary tie-break is
    resolved purely by rank order, never by re-sampling.
 
 ### Notes
 - This function is pure: same inputs always produce the same output.
 - It does not evaluate anything and does not touch the DataStore or
   WorkerPool.
-- The exact duplicate-equality rule and the tie-break rule for when two
-  *different* sources propose the identical point are open decisions (see
-  bottom of this document).
+- `propose()`'s "top-N ranked from a pool" mechanism does **not**
+  guarantee covering every decoded bucket even when N equals
+  `total_configurations` — the discarded remainder of the pool may have
+  covered buckets the top-N missed. Orchestrator compensates by
+  requesting a generously oversampled N (not just `total_configurations`)
+  from `propose()`, which also grows the underlying pool for every
+  current concrete surrogate — see §7.
+- The exact duplicate-equality rule for the *raw-numeric* (no `decode_fn`)
+  path, and the tie-break rule for when two different sources' raw
+  vectors are exactly equal, remain open decisions (see bottom of this
+  document) — unaffected by the decode-aware path above.
 
 ---
 
@@ -353,6 +492,23 @@ def run(self):
   per-surrogate seed, candidate-sampling seed) — see experiment conventions,
   section G.
 
+### Optional ParameterSpace wiring (§1a)
+When constructed with `parameter_space: ParameterSpace` (default `None`):
+- Warm-start batch entries and every round's `merge_candidates` call get
+  `decode_fn=parameter_space.decode`.
+- The Orchestrator maintains `self._evaluated_configs: set[tuple]`,
+  updated every time a result is appended (warm start included) — this is
+  what flows into `merge_candidates(evaluated_configs=...)` so a
+  configuration evaluated in round 1 is never silently re-evaluated in
+  round 3.
+- Each round, `propose()` is asked for a deliberately oversampled number
+  of candidates (capped, not `n_proposals_per_surrogate` directly) — see
+  §5 Notes for why exactly `total_configurations` is not itself enough.
+- When `parameter_space` is `None` (every synthetic benchmark), all of the
+  above is simply absent — `propose()` is asked for exactly
+  `n_proposals_per_surrogate` and `merge_candidates` gets no decode
+  arguments, byte-for-byte the pre-existing behavior.
+
 ---
 
 ## 8. Metrics / logging
@@ -425,3 +581,24 @@ instead of introducing a second naming scheme.
 - Naming convention for `surrogate_source` values (literal class name,
   user-supplied experiment label, or a fixed `"surrogate_a"`/`"surrogate_b"`
   role label independent of the underlying model).
+- `_MAX_PROPOSAL_OVERSAMPLE` (currently a fixed constant, 500, in
+  `orchestrator.py`) is an empirically-chosen cap, not a derived or
+  configurable value. Whether it should scale with `total_configurations`,
+  be CLI-configurable, or stay a fixed constant is unresolved — it was
+  sized to clear the current ML parameter spaces (6-9 configurations)
+  reliably, not derived from a formal coverage guarantee.
+- There is no formal guarantee that oversampling `propose()` actually
+  covers every bucket of a finite `ParameterSpace` — it empirically works
+  for the current small discrete spaces (verified across many seeds) but
+  relies on each concrete surrogate's `propose()` growing its underlying
+  pool when asked for more candidates, which is an implementation detail
+  of today's two surrogates, not a `BaseSurrogate` contract guarantee. A
+  future surrogate that doesn't grow its pool with `n_candidates` could
+  reintroduce spurious `ValueError`s on coarse discrete spaces.
+- No `ContinuousDimension` exists in `ParameterSpace` yet (see §1a) —
+  only discrete/categorical `ChoiceDimension`. Adding one is deferred
+  until a genuinely continuous ML hyperparameter is needed.
+- The real (non-smoke-test) classical-ML experiment dataset is not yet
+  chosen — `breast_cancer`/`synthetic_classification` in
+  `objectives/classical_ml.py` are explicitly labeled smoke-test-only.
+  That choice is pending a review of historical profiling artifacts.

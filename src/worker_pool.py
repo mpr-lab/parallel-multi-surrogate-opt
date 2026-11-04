@@ -41,14 +41,25 @@ class WorkerPool:
         def run_one(indexed_entry: tuple[int, dict]) -> dict:
             index, entry = indexed_entry
             x = entry["candidate"]
+            # When CandidateMerge (or the Orchestrator's warm-start batch)
+            # attached a decoded parameter dict, the objective receives
+            # THAT, not the raw numeric vector. DataStore's "x" always
+            # stays the raw numeric vector regardless -- decoding is a
+            # side-channel for the objective call only.
+            decoded_params = entry.get("decoded_params")
+            objective_input = decoded_params if decoded_params is not None else x
             candidate_id = f"r{round_id}_c{index}"
             seed = self._derive_seed(round_id, index)
 
             eval_start_time = time.perf_counter()
-            y = objective_fn(x, seed=seed) if seed_supported else objective_fn(x)
+            y = (
+                objective_fn(objective_input, seed=seed)
+                if seed_supported
+                else objective_fn(objective_input)
+            )
             eval_end_time = time.perf_counter()
 
-            return {
+            result = {
                 "x": x,
                 "y": y,
                 "round_id": round_id,
@@ -60,6 +71,9 @@ class WorkerPool:
                 "eval_duration": eval_end_time - eval_start_time,
                 "seed": seed,
             }
+            if decoded_params is not None:
+                result["decoded_params"] = decoded_params
+            return result
 
         tasks = list(enumerate(batch))
 

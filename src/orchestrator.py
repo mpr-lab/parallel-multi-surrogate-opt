@@ -6,6 +6,7 @@ import numpy as np
 from candidate_merge import merge_candidates
 from datastore import DataStore
 from metrics import MetricsLog
+from parameter_space import ParameterSpace
 from search_space import SearchSpace
 from surrogates.base import BaseSurrogate
 from worker_pool import WorkerPool
@@ -13,6 +14,12 @@ from worker_pool import WorkerPool
 _ROLE_WARM_START = 0
 _ROLE_SURROGATE_A = 1
 _ROLE_SURROGATE_B = 2
+
+# Upper bound on how many candidates to request from propose() when a
+# finite ParameterSpace is active, so decode-aware refill (skipping
+# in-batch AND historical duplicates) has enough ranked headroom without
+# asking for an unbounded pool on a hypothetical huge discrete space.
+_MAX_PROPOSAL_OVERSAMPLE = 500
 
 
 class Orchestrator:
@@ -38,6 +45,7 @@ class Orchestrator:
         n_proposals_per_surrogate: int,
         n_rounds: int,
         experiment_seed: int | None = None,
+        parameter_space: ParameterSpace | None = None,
     ):
         if surrogate_a.name == surrogate_b.name:
             raise ValueError(
@@ -55,8 +63,18 @@ class Orchestrator:
         self.n_proposals_per_surrogate = n_proposals_per_surrogate
         self.n_rounds = n_rounds
         self.experiment_seed = experiment_seed
+        # Optional encode/decode scheme (see ParameterSpace). None
+        # (default) means every candidate stays a raw numeric vector end
+        # to end, identical to the framework's original behavior -- no
+        # decoding, no evaluated-config tracking, no oversampling.
+        self.parameter_space = parameter_space
 
         self._current_best: float | None = None
+        # Canonical decoded-config keys already evaluated (warm start +
+        # every round so far). Seeded into CandidateMerge's dedup set so
+        # a candidate decoding to an already-evaluated configuration is
+        # skipped, not silently re-evaluated as if it were new.
+        self._evaluated_configs: set[tuple] = set()
         self.metrics = MetricsLog()
 
     def run(self) -> None:
@@ -73,14 +91,16 @@ class Orchestrator:
         rng = self._make_rng(_ROLE_WARM_START, round_id=0)
         eval_start = time.perf_counter()
         X_warm = self.search_space.sample(self.n_initial, rng)
-        warm_batch = [
-            {
+        warm_batch = []
+        for i, x in enumerate(X_warm):
+            entry = {
                 "candidate": x,
                 "surrogate_source": "random",
                 "candidate_rank_within_source": i,
             }
-            for i, x in enumerate(X_warm)
-        ]
+            if self.parameter_space is not None:
+                entry["decoded_params"] = self.parameter_space.decode(x)
+            warm_batch.append(entry)
         results = self.worker_pool.evaluate(warm_batch, self.objective_fn, round_id=0)
         eval_time = time.perf_counter() - eval_start
 
@@ -110,17 +130,29 @@ class Orchestrator:
         rng_a = self._make_rng(_ROLE_SURROGATE_A, round_id)
         rng_b = self._make_rng(_ROLE_SURROGATE_B, round_id)
 
+        # With a finite ParameterSpace, ask each surrogate for a much
+        # longer ranked list than we actually need, so CandidateMerge has
+        # enough fallback room to skip past in-batch AND historical
+        # decoded duplicates without starving the batch. Continuous
+        # (parameter_space is None) benchmarks are unaffected.
+        propose_n = self._propose_count()
+
         propose_start = time.perf_counter()
-        proposals_a = self.surrogate_a.propose(
-            self.search_space, self.n_proposals_per_surrogate, rng_a
-        )
+        proposals_a = self.surrogate_a.propose(self.search_space, propose_n, rng_a)
         propose_a_time = time.perf_counter() - propose_start
 
         propose_start = time.perf_counter()
-        proposals_b = self.surrogate_b.propose(
-            self.search_space, self.n_proposals_per_surrogate, rng_b
-        )
+        proposals_b = self.surrogate_b.propose(self.search_space, propose_n, rng_b)
         propose_b_time = time.perf_counter() - propose_start
+
+        if self.parameter_space is not None:
+            decode_fn = self.parameter_space.decode
+            evaluated_configs = self._evaluated_configs
+            total_configurations = self.parameter_space.total_configurations
+        else:
+            decode_fn = None
+            evaluated_configs = None
+            total_configurations = None
 
         batch = merge_candidates(
             {
@@ -131,6 +163,9 @@ class Orchestrator:
                 self.surrogate_a.name: self.n_proposals_per_surrogate,
                 self.surrogate_b.name: self.n_proposals_per_surrogate,
             },
+            decode_fn=decode_fn,
+            evaluated_configs=evaluated_configs,
+            total_configurations=total_configurations,
         )
 
         eval_start = time.perf_counter()
@@ -171,6 +206,24 @@ class Orchestrator:
             record = dict(result)
             record["improved_global_best"] = improved
             self.datastore.append(record)
+
+            decoded_params = result.get("decoded_params")
+            if decoded_params is not None:
+                self._evaluated_configs.add(tuple(sorted(decoded_params.items())))
+
+    def _propose_count(self) -> int:
+        if self.parameter_space is None:
+            return self.n_proposals_per_surrogate
+        # propose() ranks a pool and returns only its top-N -- requesting
+        # exactly total_configurations is NOT enough to guarantee every
+        # bucket is represented, since the top-N by predicted mean can
+        # still cluster into a few buckets even when N == the number of
+        # possible buckets (the discarded remainder of the pool may have
+        # covered the rest). Request the full oversample cap regardless,
+        # which also grows the underlying pool for every current
+        # concrete surrogate (pool_size = max(configured pool_size, N)),
+        # improving decode-coverage, not just list length.
+        return _MAX_PROPOSAL_OVERSAMPLE
 
     def _make_rng(self, role: int, round_id: int) -> np.random.Generator:
         if self.experiment_seed is None:

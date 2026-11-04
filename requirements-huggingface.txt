@@ -1,0 +1,13 @@
+-r requirements.txt
+# distilbert_imdb benchmark only. Pulls in torch -- a much heavier
+# dependency than anything the core framework needs.
+#
+# On platforms where PyPI only ships an older torch wheel built against
+# NumPy 1.x (e.g. Intel macOS, same issue as requirements-baseline.txt),
+# numpy must be pinned below 2.0 to avoid an ABI crash on import. If your
+# platform has newer torch wheels available, this pin may not be
+# necessary -- check `pip index versions torch` for your platform first.
+numpy<2
+torch
+transformers
+datasets

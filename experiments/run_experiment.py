@@ -5,19 +5,40 @@ import json
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from datastore import DataStore  # noqa: E402
 from objectives import branin, hartmann6, rastrigin  # noqa: E402
+from objectives.classical_ml import (  # noqa: E402
+    DEFAULT_SMOKE_TEST_DATASET as DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+    LOGISTIC_REGRESSION_PARAMETER_SPACE,
+    RANDOM_FOREST_PARAMETER_SPACE,
+    XGBOOST_PARAMETER_SPACE,
+    make_logistic_regression_objective,
+    make_random_forest_objective,
+    make_xgboost_objective,
+)
+from objectives.huggingface_distilbert import (  # noqa: E402
+    HUGGINGFACE_PARAMETER_SPACE,
+    N_EVAL_EXAMPLES as HF_DEFAULT_EVAL_EXAMPLES,
+    N_TRAIN_EXAMPLES as HF_DEFAULT_TRAIN_EXAMPLES,
+    make_distilbert_imdb_objective,
+)
 from orchestrator import Orchestrator  # noqa: E402
+from parameter_space import ParameterSpace  # noqa: E402
 from search_space import SearchSpace  # noqa: E402
 from surrogates import GaussianProcessSurrogate, RandomForestSurrogate  # noqa: E402
 from worker_pool import WorkerPool  # noqa: E402
 
+# "Legacy" shape: a bare objective + plain continuous bounds, used
+# unchanged by every synthetic benchmark. SearchSpace is built directly
+# from "bounds" and no decode step is involved anywhere downstream.
 BENCHMARK_REGISTRY = {
     "branin": {
         "objective": branin,
@@ -33,6 +54,53 @@ BENCHMARK_REGISTRY = {
     },
 }
 
+# "Parameterized" shape: a ParameterSpace (mixed/discrete/categorical
+# dimensions) plus an objective FACTORY. The factory is called once, at
+# experiment-setup time (before Orchestrator.run()), so one-time dataset/
+# model loading never contaminates any single candidate's objective-
+# evaluation timing. `make_objective(config, seed) -> Callable`.
+PARAMETERIZED_BENCHMARK_REGISTRY = {
+    "logistic_regression": {
+        "parameter_space": LOGISTIC_REGRESSION_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_logistic_regression_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    "random_forest": {
+        "parameter_space": RANDOM_FOREST_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_random_forest_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    "xgboost": {
+        "parameter_space": XGBOOST_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_xgboost_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    "distilbert_imdb": {
+        "parameter_space": HUGGINGFACE_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_distilbert_imdb_objective(
+            cache_dir=config.cache_dir,
+            output_dir=config.model_output_dir,
+            device=config.device,
+            seed=seed,
+            train_subset_size=config.train_subset_size or HF_DEFAULT_TRAIN_EXAMPLES,
+            eval_subset_size=config.eval_subset_size or HF_DEFAULT_EVAL_EXAMPLES,
+        ),
+    },
+}
+
+_overlap = set(BENCHMARK_REGISTRY) & set(PARAMETERIZED_BENCHMARK_REGISTRY)
+assert not _overlap, f"benchmark name(s) registered twice: {_overlap}"
+ALL_BENCHMARK_NAMES = sorted(set(BENCHMARK_REGISTRY) | set(PARAMETERIZED_BENCHMARK_REGISTRY))
+
 # Each entry: (make_surrogate_a, make_surrogate_b), both `Callable[[int | None], BaseSurrogate]`.
 # Registering a new pair means adding an entry here -- the Orchestrator never
 # sees this registry and does not change when a pair is added.
@@ -42,6 +110,50 @@ SURROGATE_PAIR_REGISTRY = {
         lambda seed: RandomForestSurrogate(random_state=seed),
     ),
 }
+
+
+@dataclass(frozen=True)
+class MLWorkloadConfig:
+    """Options relevant only to classical-ML / Hugging Face benchmarks.
+    Synthetic benchmarks (branin/hartmann6/rastrigin) never read this.
+    Nothing here defaults to a hard-coded filesystem path -- cache/output
+    directories are None unless the caller explicitly sets them via CLI.
+    """
+
+    dataset: str | None = None
+    data_dir: Path | None = None
+    cache_dir: Path | None = None
+    model_output_dir: Path | None = None
+    device: str = "cpu"
+    train_subset_size: int | None = None
+    eval_subset_size: int | None = None
+
+
+def _build_benchmark(
+    args: argparse.Namespace,
+) -> tuple[SearchSpace, Callable, ParameterSpace | None]:
+    """Returns (search_space, objective_fn, parameter_space). parameter_space
+    is None for every legacy (synthetic) benchmark -- Orchestrator's
+    default behavior is then byte-for-byte what it was before this
+    existed (no decoding, no evaluated-config tracking, no oversampling).
+    """
+    if args.benchmark in BENCHMARK_REGISTRY:
+        entry = BENCHMARK_REGISTRY[args.benchmark]
+        return SearchSpace(bounds=entry["bounds"]), entry["objective"], None
+
+    entry = PARAMETERIZED_BENCHMARK_REGISTRY[args.benchmark]
+    parameter_space = entry["parameter_space"]
+    config = MLWorkloadConfig(
+        dataset=args.dataset,
+        data_dir=args.data_dir,
+        cache_dir=args.cache_dir,
+        model_output_dir=args.model_output_dir,
+        device=args.device,
+        train_subset_size=args.train_subset_size,
+        eval_subset_size=args.eval_subset_size,
+    )
+    objective_fn = entry["make_objective"](config, args.seed)
+    return SearchSpace(bounds=parameter_space.bounds), objective_fn, parameter_space
 
 
 def _git_commit_hash() -> str | None:
@@ -64,13 +176,25 @@ def _write_candidates_csv(records: list[dict], path: Path) -> None:
         path.write_text("")
         return
     dim = len(records[0]["x"])
-    fieldnames = [f"x_{i}" for i in range(dim)] + [k for k in records[0] if k != "x"]
+    # decoded_params is only ever present when a ParameterSpace/decode_fn
+    # was used (ML benchmarks) -- for every synthetic benchmark this is
+    # absent and the column set below is identical to before this existed.
+    has_decoded = "decoded_params" in records[0]
+    param_names = sorted(records[0]["decoded_params"]) if has_decoded else []
+
+    fieldnames = (
+        [f"x_{i}" for i in range(dim)]
+        + [f"param_{name}" for name in param_names]
+        + [k for k in records[0] if k not in ("x", "decoded_params")]
+    )
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for record in records:
             row = {f"x_{i}": v for i, v in enumerate(record["x"])}
-            row.update({k: v for k, v in record.items() if k != "x"})
+            if has_decoded:
+                row.update({f"param_{k}": v for k, v in record["decoded_params"].items()})
+            row.update({k: v for k, v in record.items() if k not in ("x", "decoded_params")})
             writer.writerow(row)
 
 
@@ -78,7 +202,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run one controlled multi-surrogate optimization experiment."
     )
-    parser.add_argument("--benchmark", required=True, choices=sorted(BENCHMARK_REGISTRY))
+    parser.add_argument("--benchmark", required=True, choices=ALL_BENCHMARK_NAMES)
     parser.add_argument("--pair", required=True, choices=sorted(SURROGATE_PAIR_REGISTRY))
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--n-initial", type=int, default=10)
@@ -86,6 +210,29 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=6)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "results")
+
+    # ML-workload-only options. Ignored by synthetic benchmarks. None of
+    # these default to a hard-coded filesystem path.
+    parser.add_argument(
+        "--dataset", type=str, default=None,
+        help=(
+            "Dataset name for classical-ML benchmarks. Defaults to a "
+            "SMOKE-TEST dataset only (objectives.classical_ml."
+            "DEFAULT_SMOKE_TEST_DATASET) -- the real experiment dataset is "
+            "a separate, not-yet-made decision; pass this explicitly for "
+            "any non-smoke-test run."
+        ),
+    )
+    parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument(
+        "--cache-dir", type=Path, default=None,
+        help="Hugging Face cache directory for models/datasets (default: transformers/datasets' own default cache)",
+    )
+    parser.add_argument("--model-output-dir", type=Path, default=None)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--train-subset-size", type=int, default=None)
+    parser.add_argument("--eval-subset-size", type=int, default=None)
+
     return parser.parse_args(argv)
 
 
@@ -98,10 +245,9 @@ def main(argv=None) -> None:
         )
     n_proposals_per_surrogate = args.batch_size // 2
 
-    benchmark = BENCHMARK_REGISTRY[args.benchmark]
     make_surrogate_a, make_surrogate_b = SURROGATE_PAIR_REGISTRY[args.pair]
+    search_space, objective_fn, parameter_space = _build_benchmark(args)
 
-    search_space = SearchSpace(bounds=benchmark["bounds"])
     surrogate_a = make_surrogate_a(args.seed)
     surrogate_b = make_surrogate_b(args.seed)
     datastore = DataStore()
@@ -109,7 +255,7 @@ def main(argv=None) -> None:
 
     orchestrator = Orchestrator(
         search_space=search_space,
-        objective_fn=benchmark["objective"],
+        objective_fn=objective_fn,
         surrogate_a=surrogate_a,
         surrogate_b=surrogate_b,
         datastore=datastore,
@@ -118,6 +264,7 @@ def main(argv=None) -> None:
         n_proposals_per_surrogate=n_proposals_per_surrogate,
         n_rounds=args.n_rounds,
         experiment_seed=args.seed,
+        parameter_space=parameter_space,
     )
 
     run_name = f"{surrogate_a.name}_{surrogate_b.name}_{args.benchmark}_seed{args.seed}"
