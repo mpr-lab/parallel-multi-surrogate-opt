@@ -36,7 +36,15 @@ def test_objective_returns_negative_eval_loss_higher_is_better(monkeypatch):
     captured_calls = []
 
     def fake_train_and_evaluate(
-        train_dataset, eval_dataset, learning_rate, batch_size, cache_dir, output_dir, device, seed
+        train_dataset,
+        eval_dataset,
+        learning_rate,
+        batch_size,
+        cache_dir,
+        output_dir,
+        device,
+        seed,
+        weight_decay=None,
     ):
         captured_calls.append(
             {
@@ -44,6 +52,7 @@ def test_objective_returns_negative_eval_loss_higher_is_better(monkeypatch):
                 "eval_dataset": eval_dataset,
                 "learning_rate": learning_rate,
                 "batch_size": batch_size,
+                "weight_decay": weight_decay,
             }
         )
         return 0.35  # fake eval_loss
@@ -62,6 +71,10 @@ def test_objective_returns_negative_eval_loss_higher_is_better(monkeypatch):
             "eval_dataset": "EVAL",
             "learning_rate": params["learning_rate"],
             "batch_size": params["batch_size"],
+            # Historical ParameterSpace has no weight_decay dimension --
+            # params.get("weight_decay") is None, so AdamW's own default
+            # applies untouched (behavior-preserving for this benchmark).
+            "weight_decay": None,
         }
     ]
 
@@ -96,3 +109,61 @@ def test_objective_defaults_to_spec_subset_sizes_when_not_overridden(monkeypatch
     hf.make_distilbert_imdb_objective(seed=0)
 
     assert captured == {"train_subset_size": 2000, "eval_subset_size": 1000}
+
+
+# -- expanded search space (15-evaluation protocol) -----------------------
+
+
+def test_expanded_parameter_space_has_100_configurations():
+    assert hf.HUGGINGFACE_EXPANDED_PARAMETER_SPACE.total_configurations == 100
+    choices = {d.name: list(d.choices) for d in hf.HUGGINGFACE_EXPANDED_PARAMETER_SPACE.dimensions}
+    assert len(choices["learning_rate"]) == 10
+    assert choices["learning_rate"][0] == pytest.approx(1e-5)
+    assert choices["learning_rate"][-1] == pytest.approx(1e-4)
+    assert choices["batch_size"] == [8, 16]
+    assert choices["weight_decay"] == [0.0, 0.001, 0.01, 0.05, 0.1]
+
+
+def test_historical_parameter_space_unchanged_by_expanded_addition():
+    assert hf.HUGGINGFACE_PARAMETER_SPACE.total_configurations == 6
+    choices = {d.name: list(d.choices) for d in hf.HUGGINGFACE_PARAMETER_SPACE.dimensions}
+    assert choices == {"learning_rate": [1e-5, 3e-5, 1e-4], "batch_size": [8, 16]}
+
+
+def test_expanded_objective_passes_decoded_weight_decay_through(monkeypatch):
+    monkeypatch.setattr(hf, "_prepare_tokenized_dataset", lambda cache_dir, seed, *a, **k: ("TRAIN", "EVAL"))
+
+    captured_calls = []
+
+    def fake_train_and_evaluate(
+        train_dataset,
+        eval_dataset,
+        learning_rate,
+        batch_size,
+        cache_dir,
+        output_dir,
+        device,
+        seed,
+        weight_decay=None,
+    ):
+        captured_calls.append(
+            {"learning_rate": learning_rate, "batch_size": batch_size, "weight_decay": weight_decay}
+        )
+        return 0.4
+
+    monkeypatch.setattr(hf, "_train_and_evaluate", fake_train_and_evaluate)
+
+    objective = hf.make_distilbert_imdb_objective(cache_dir=None, output_dir=None, device="cpu", seed=42)
+    params = hf.HUGGINGFACE_EXPANDED_PARAMETER_SPACE.decode(np.array([0.0, 0.0, 0.5]))
+
+    y = objective(params, seed=42)
+
+    assert y == -0.4
+    assert captured_calls == [
+        {
+            "learning_rate": params["learning_rate"],
+            "batch_size": params["batch_size"],
+            "weight_decay": params["weight_decay"],
+        }
+    ]
+    assert captured_calls[0]["weight_decay"] is not None

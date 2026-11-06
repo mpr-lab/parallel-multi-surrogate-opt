@@ -28,6 +28,7 @@ from objectives.classical_ml import (  # noqa: E402
     make_xgboost_objective,
 )
 from objectives.huggingface_distilbert import (  # noqa: E402
+    HUGGINGFACE_EXPANDED_PARAMETER_SPACE,
     HUGGINGFACE_PARAMETER_SPACE,
     N_EVAL_EXAMPLES as HF_DEFAULT_EVAL_EXAMPLES,
     N_TRAIN_EXAMPLES as HF_DEFAULT_TRAIN_EXAMPLES,
@@ -118,6 +119,23 @@ PARAMETERIZED_BENCHMARK_REGISTRY = {
     },
     "distilbert_imdb": {
         "parameter_space": HUGGINGFACE_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_distilbert_imdb_objective(
+            cache_dir=config.cache_dir,
+            output_dir=config.model_output_dir,
+            device=config.device,
+            seed=seed,
+            train_subset_size=config.train_subset_size or HF_DEFAULT_TRAIN_EXAMPLES,
+            eval_subset_size=config.eval_subset_size or HF_DEFAULT_EVAL_EXAMPLES,
+        ),
+    },
+    # Expanded search space for the matched 15-evaluation protocol.
+    # Separate benchmark name from distilbert_imdb above -- that
+    # historical profiling benchmark's space/behavior is unchanged.
+    # Reuses the identical make_distilbert_imdb_objective factory (same
+    # model/dataset/subset sizes/max length/epochs/device/seed/timing);
+    # only the ParameterSpace differs.
+    "distilbert_imdb_expanded": {
+        "parameter_space": HUGGINGFACE_EXPANDED_PARAMETER_SPACE,
         "make_objective": lambda config, seed: make_distilbert_imdb_objective(
             cache_dir=config.cache_dir,
             output_dir=config.model_output_dir,

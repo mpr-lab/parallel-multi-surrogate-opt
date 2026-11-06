@@ -25,6 +25,7 @@ def test_all_expected_benchmark_names_are_registered():
             "random_forest_expanded",
             "xgboost_expanded",
             "distilbert_imdb",
+            "distilbert_imdb_expanded",
         ]
     )
 
@@ -155,6 +156,7 @@ def test_budget_precheck_skips_continuous_synthetic_benchmarks(benchmark):
         ("logistic_regression_expanded", 80),
         ("random_forest_expanded", 152),
         ("xgboost_expanded", 96),
+        ("distilbert_imdb_expanded", 100),
     ],
 )
 def test_budget_precheck_allows_the_matched_15_evaluation_protocol(benchmark, total_configurations):
@@ -177,6 +179,24 @@ def test_historical_grid_benchmarks_are_unchanged_by_the_expanded_additions():
     assert run_experiment.LOGISTIC_REGRESSION_PARAMETER_SPACE.total_configurations == 8
     assert run_experiment.RANDOM_FOREST_PARAMETER_SPACE.total_configurations == 9
     assert run_experiment.XGBOOST_PARAMETER_SPACE.total_configurations == 9
+    assert run_experiment.HUGGINGFACE_PARAMETER_SPACE.total_configurations == 6
+
+
+def test_distilbert_imdb_expanded_registered_with_correct_parameter_space():
+    # Does NOT call _build_benchmark/the factory here -- that would try to
+    # load real Hugging Face datasets/models over the network. Only the
+    # registry wiring and the ParameterSpace's own decode behavior (no
+    # heavy deps involved) are checked.
+    entry = run_experiment.PARAMETERIZED_BENCHMARK_REGISTRY["distilbert_imdb_expanded"]
+    parameter_space = entry["parameter_space"]
+
+    assert parameter_space is run_experiment.HUGGINGFACE_EXPANDED_PARAMETER_SPACE
+    assert parameter_space.total_configurations == 100
+
+    decoded = parameter_space.decode([0.0, 0.0, 0.5])
+    assert set(decoded) == {"learning_rate", "batch_size", "weight_decay"}
+    assert decoded["batch_size"] == 8
+    assert decoded["weight_decay"] == 0.01
 
 
 def test_cli_runs_logistic_regression_expanded_with_matched_protocol(tmp_path):

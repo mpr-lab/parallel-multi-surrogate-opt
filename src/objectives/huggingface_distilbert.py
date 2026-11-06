@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Callable
 
+import numpy as np
+
 from parameter_space import ChoiceDimension, ParameterSpace
 
 MODEL_NAME = "distilbert-base-uncased"
@@ -13,10 +15,28 @@ NUM_EPOCHS = 1
 # Exact historical grid: learning_rate = {1e-5, 3e-5, 1e-4}, batch_size =
 # {8, 16}. Treated as discrete choices (not a continuous range) for
 # consistency with every other workload's discrete-choice treatment.
+# This is the HISTORICAL profiling benchmark's space -- unchanged.
 HUGGINGFACE_PARAMETER_SPACE = ParameterSpace(
     [
         ChoiceDimension("learning_rate", [1e-5, 3e-5, 1e-4]),
         ChoiceDimension("batch_size", [8, 16]),
+    ]
+)
+
+# "Expanded" search space for the matched 15-evaluation experiment
+# protocol (n_initial=5, n_rounds=5, batch_size=2). A SEPARATE
+# ParameterSpace, not a change to the historical grid above. Reuses the
+# identical "learning_rate"/"batch_size" decoded names plus one new
+# "weight_decay" dimension -- make_distilbert_imdb_objective (unchanged
+# below) handles weight_decay's absence from the historical space by
+# falling back to AdamW's own default (see _train_and_evaluate).
+# 10 log-spaced learning rates x 2 batch sizes x 5 weight decays -> 100.
+HUGGINGFACE_EXPANDED_LEARNING_RATE_VALUES = np.logspace(-5, -4, 10).tolist()
+HUGGINGFACE_EXPANDED_PARAMETER_SPACE = ParameterSpace(
+    [
+        ChoiceDimension("learning_rate", HUGGINGFACE_EXPANDED_LEARNING_RATE_VALUES),
+        ChoiceDimension("batch_size", [8, 16]),
+        ChoiceDimension("weight_decay", [0.0, 0.001, 0.01, 0.05, 0.1]),
     ]
 )
 
@@ -95,11 +115,19 @@ def _train_and_evaluate(
     output_dir: Path | None,
     device: str,
     seed: int | None,
+    weight_decay: float | None = None,
 ) -> float:
     """The expensive path: a FRESH pretrained model, one epoch of
     training, eval-set loss. Kept as its own module-level function
     specifically so tests can monkeypatch it directly and verify the
     objective's wiring without ever touching transformers/torch/datasets.
+
+    `weight_decay` is optional: the historical distilbert_imdb benchmark's
+    decoded params never include it, so it's None there and AdamW's own
+    default applies (this function never overrides it in that case) --
+    behavior-preserving for that benchmark. The expanded benchmark's
+    ParameterSpace does include it, in which case it's passed through
+    explicitly.
     """
     _require_huggingface_deps()
     import torch
@@ -116,7 +144,10 @@ def _train_and_evaluate(
     model.to(device)
     model.train()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer_kwargs = {"lr": learning_rate}
+    if weight_decay is not None:
+        optimizer_kwargs["weight_decay"] = weight_decay
+    optimizer = torch.optim.AdamW(model.parameters(), **optimizer_kwargs)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
     for _ in range(NUM_EPOCHS):
@@ -189,6 +220,11 @@ def make_distilbert_imdb_objective(
             output_dir=output_dir,
             device=device,
             seed=seed,
+            # Absent from the historical ParameterSpace's decoded dict ->
+            # None -> _train_and_evaluate leaves AdamW's own default
+            # untouched (behavior-preserving for distilbert_imdb). Present
+            # for distilbert_imdb_expanded -> passed through explicitly.
+            weight_decay=params.get("weight_decay"),
         )
         return -float(eval_loss)
 
