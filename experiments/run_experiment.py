@@ -17,8 +17,11 @@ from datastore import DataStore  # noqa: E402
 from objectives import branin, hartmann6, rastrigin  # noqa: E402
 from objectives.classical_ml import (  # noqa: E402
     DEFAULT_SMOKE_TEST_DATASET as DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+    LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE,
     LOGISTIC_REGRESSION_PARAMETER_SPACE,
+    RANDOM_FOREST_EXPANDED_PARAMETER_SPACE,
     RANDOM_FOREST_PARAMETER_SPACE,
+    XGBOOST_EXPANDED_PARAMETER_SPACE,
     XGBOOST_PARAMETER_SPACE,
     make_logistic_regression_objective,
     make_random_forest_objective,
@@ -78,6 +81,35 @@ PARAMETERIZED_BENCHMARK_REGISTRY = {
     },
     "xgboost": {
         "parameter_space": XGBOOST_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_xgboost_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    # "Expanded" search spaces for the matched 15-evaluation experiment
+    # protocol (n_initial=5, n_rounds=5, batch_size=2). Separate benchmark
+    # names from their historical-grid counterparts above -- those are
+    # unchanged. Each reuses the identical make_*_objective factory (same
+    # dataset/objective/scaling behavior), only the ParameterSpace differs.
+    "logistic_regression_expanded": {
+        "parameter_space": LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_logistic_regression_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    "random_forest_expanded": {
+        "parameter_space": RANDOM_FOREST_EXPANDED_PARAMETER_SPACE,
+        "make_objective": lambda config, seed: make_random_forest_objective(
+            dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
+            data_dir=config.data_dir,
+            seed=seed,
+        ),
+    },
+    "xgboost_expanded": {
+        "parameter_space": XGBOOST_EXPANDED_PARAMETER_SPACE,
         "make_objective": lambda config, seed: make_xgboost_objective(
             dataset=config.dataset or DEFAULT_CLASSICAL_ML_SMOKE_TEST_DATASET,
             data_dir=config.data_dir,

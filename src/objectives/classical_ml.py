@@ -50,6 +50,46 @@ XGBOOST_PARAMETER_SPACE = ParameterSpace(
     ]
 )
 
+# "Expanded" search spaces for the matched 15-evaluation experiment
+# protocol (n_initial=5, n_rounds=5, batch_size=2). These are SEPARATE
+# ParameterSpace constants, not a change to the historical-grid spaces
+# above -- logistic_regression/random_forest/xgboost keep their original
+# coarse grids unchanged. Each expanded space reuses the *same* decoded
+# parameter names ("C"/"penalty", "n_estimators"/"max_depth",
+# "eta"/"max_depth") as its historical counterpart, so the existing
+# make_*_objective factories below are reused completely unchanged --
+# only the ParameterSpace paired with them (in run_experiment.py's
+# registry) differs.
+
+# 40 log-spaced values from 1e-4 to 1e3 (inclusive), 2 penalties -> 80.
+LOGISTIC_REGRESSION_EXPANDED_C_VALUES = np.logspace(-4, 3, 40).tolist()
+LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE = ParameterSpace(
+    [
+        ChoiceDimension("C", LOGISTIC_REGRESSION_EXPANDED_C_VALUES),
+        ChoiceDimension("penalty", ["l1", "l2"]),
+    ]
+)
+
+# 19 n_estimators values x 8 max_depth values -> 152.
+RANDOM_FOREST_EXPANDED_PARAMETER_SPACE = ParameterSpace(
+    [
+        ChoiceDimension(
+            "n_estimators",
+            [50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500],
+        ),
+        ChoiceDimension("max_depth", [3, 5, 7, 10, 15, 20, 25, 30]),
+    ]
+)
+
+# 12 log-spaced values from 0.01 to 0.3 (inclusive), 8 max_depth values -> 96.
+XGBOOST_EXPANDED_ETA_VALUES = np.logspace(np.log10(0.01), np.log10(0.3), 12).tolist()
+XGBOOST_EXPANDED_PARAMETER_SPACE = ParameterSpace(
+    [
+        ChoiceDimension("eta", XGBOOST_EXPANDED_ETA_VALUES),
+        ChoiceDimension("max_depth", [3, 4, 5, 6, 7, 8, 9, 10]),
+    ]
+)
+
 
 def _load_breast_cancer(seed: int | None, data_dir: Path | None) -> tuple[np.ndarray, np.ndarray]:
     """SMOKE-TEST dataset only. Bundled with scikit-learn: no download,

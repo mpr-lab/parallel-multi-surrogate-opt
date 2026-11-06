@@ -21,6 +21,9 @@ def test_all_expected_benchmark_names_are_registered():
             "logistic_regression",
             "random_forest",
             "xgboost",
+            "logistic_regression_expanded",
+            "random_forest_expanded",
+            "xgboost_expanded",
             "distilbert_imdb",
         ]
     )
@@ -144,6 +147,66 @@ def test_budget_precheck_skips_continuous_synthetic_benchmarks(benchmark):
         ]
     )
     run_experiment._check_finite_space_budget(args)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "benchmark,total_configurations",
+    [
+        ("logistic_regression_expanded", 80),
+        ("random_forest_expanded", 152),
+        ("xgboost_expanded", 96),
+    ],
+)
+def test_budget_precheck_allows_the_matched_15_evaluation_protocol(benchmark, total_configurations):
+    # n_initial=5, n_rounds=5, batch_size=2 -> 5 + 5*2 = 15 real evaluations,
+    # comfortably under each expanded space's total_configurations.
+    args = run_experiment.parse_args(
+        [
+            "--benchmark", benchmark, "--pair", "gp_rf", "--seed", "42",
+            "--n-initial", "5", "--n-rounds", "5", "--batch-size", "2",
+        ]
+    )
+    run_experiment._check_finite_space_budget(args)  # must not raise
+
+    entry = run_experiment.PARAMETERIZED_BENCHMARK_REGISTRY[benchmark]
+    assert entry["parameter_space"].total_configurations == total_configurations
+    assert 15 <= total_configurations
+
+
+def test_historical_grid_benchmarks_are_unchanged_by_the_expanded_additions():
+    assert run_experiment.LOGISTIC_REGRESSION_PARAMETER_SPACE.total_configurations == 8
+    assert run_experiment.RANDOM_FOREST_PARAMETER_SPACE.total_configurations == 9
+    assert run_experiment.XGBOOST_PARAMETER_SPACE.total_configurations == 9
+
+
+def test_cli_runs_logistic_regression_expanded_with_matched_protocol(tmp_path):
+    result = subprocess.run(
+        [
+            sys.executable, str(SCRIPT),
+            "--benchmark", "logistic_regression_expanded",
+            "--pair", "gp_rf",
+            "--seed", "42",
+            "--dataset", "synthetic_classification",
+            "--n-initial", "5",
+            "--n-rounds", "5",
+            "--batch-size", "2",
+            "--workers", "1",
+            "--output-dir", str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+
+    run_dir = tmp_path / "gaussian_process_random_forest_logistic_regression_expanded_seed42"
+    metadata = json.loads((run_dir / "metadata.json").read_text())
+    assert metadata["total_evaluations"] == 15
+
+    candidate_lines = (run_dir / "candidates.csv").read_text().strip().splitlines()
+    assert len(candidate_lines) == 1 + 15  # header + 15 rows
+    header = candidate_lines[0].split(",")
+    assert "param_C" in header and "param_penalty" in header
 
 
 def test_cli_rejects_over_budget_run_before_building_benchmark(tmp_path):

@@ -5,8 +5,11 @@ import numpy as np
 import pytest
 
 from objectives.classical_ml import (
+    LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE,
     LOGISTIC_REGRESSION_PARAMETER_SPACE,
+    RANDOM_FOREST_EXPANDED_PARAMETER_SPACE,
     RANDOM_FOREST_PARAMETER_SPACE,
+    XGBOOST_EXPANDED_PARAMETER_SPACE,
     XGBOOST_PARAMETER_SPACE,
     make_logistic_regression_objective,
     make_random_forest_objective,
@@ -45,6 +48,63 @@ def test_random_forest_parameter_space_matches_spec():
 def test_xgboost_parameter_space_matches_spec():
     choices = {d.name: list(d.choices) for d in XGBOOST_PARAMETER_SPACE.dimensions}
     assert choices == {"eta": [0.01, 0.1, 0.2], "max_depth": [3, 6, 9]}
+
+
+# -- expanded search spaces (15-evaluation protocol) ----------------------
+# These must NOT affect the historical-grid spaces above -- verified by
+# the three tests immediately above still asserting the original,
+# unchanged 4/3/3-choice grids.
+
+
+def test_logistic_regression_expanded_has_80_configurations():
+    assert LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE.total_configurations == 80
+    c_dimension = LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE.dimensions[0]
+    penalty_dimension = LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE.dimensions[1]
+    assert c_dimension.name == "C"
+    assert len(c_dimension.choices) == 40
+    assert c_dimension.choices[0] == pytest.approx(1e-4)
+    assert c_dimension.choices[-1] == pytest.approx(1e3)
+    assert list(penalty_dimension.choices) == ["l1", "l2"]
+
+
+def test_random_forest_expanded_has_152_configurations():
+    assert RANDOM_FOREST_EXPANDED_PARAMETER_SPACE.total_configurations == 152
+    n_estimators_dimension = RANDOM_FOREST_EXPANDED_PARAMETER_SPACE.dimensions[0]
+    max_depth_dimension = RANDOM_FOREST_EXPANDED_PARAMETER_SPACE.dimensions[1]
+    assert list(n_estimators_dimension.choices) == [
+        50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500,
+    ]
+    assert list(max_depth_dimension.choices) == [3, 5, 7, 10, 15, 20, 25, 30]
+
+
+def test_xgboost_expanded_has_96_configurations():
+    assert XGBOOST_EXPANDED_PARAMETER_SPACE.total_configurations == 96
+    eta_dimension = XGBOOST_EXPANDED_PARAMETER_SPACE.dimensions[0]
+    max_depth_dimension = XGBOOST_EXPANDED_PARAMETER_SPACE.dimensions[1]
+    assert len(eta_dimension.choices) == 12
+    assert eta_dimension.choices[0] == pytest.approx(0.01)
+    assert eta_dimension.choices[-1] == pytest.approx(0.3)
+    assert list(max_depth_dimension.choices) == [3, 4, 5, 6, 7, 8, 9, 10]
+
+
+def test_expanded_spaces_decode_to_the_same_param_names_as_historical_counterparts():
+    # This is exactly why the existing make_*_objective factories are
+    # reusable unchanged for the expanded benchmarks.
+    assert {d.name for d in LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE.dimensions} == {
+        d.name for d in LOGISTIC_REGRESSION_PARAMETER_SPACE.dimensions
+    }
+    assert {d.name for d in RANDOM_FOREST_EXPANDED_PARAMETER_SPACE.dimensions} == {
+        d.name for d in RANDOM_FOREST_PARAMETER_SPACE.dimensions
+    }
+    assert {d.name for d in XGBOOST_EXPANDED_PARAMETER_SPACE.dimensions} == {
+        d.name for d in XGBOOST_PARAMETER_SPACE.dimensions
+    }
+
+
+def test_random_forest_objective_works_with_expanded_space_decoded_params():
+    objective = make_random_forest_objective(dataset=FAST_DATASET, seed=0)
+    y = objective({"n_estimators": 500, "max_depth": 30})  # only valid in the expanded space
+    assert 0.0 <= y <= 1.0
 
 
 def test_prepare_classical_ml_data_rejects_unknown_dataset():
