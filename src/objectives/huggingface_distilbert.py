@@ -6,7 +6,7 @@ import numpy as np
 from parameter_space import ChoiceDimension, ParameterSpace
 
 MODEL_NAME = "distilbert-base-uncased"
-DATASET_NAME = "imdb"
+DATASET_NAME = "stanfordnlp/imdb"
 N_TRAIN_EXAMPLES = 2000
 N_EVAL_EXAMPLES = 1000
 MAX_TOKEN_LENGTH = 128

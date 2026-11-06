@@ -12,6 +12,58 @@ def test_module_import_requires_no_heavy_dependencies():
     assert "datasets" not in sys.modules
 
 
+def test_dataset_name_is_namespaced_imdb_identifier():
+    # datasets.load_dataset now requires a namespaced "namespace/name" id;
+    # the bare "imdb" id raises HfUriError on newer datasets/hub versions.
+    assert hf.DATASET_NAME == "stanfordnlp/imdb"
+
+
+def test_prepare_tokenized_dataset_passes_dataset_name_constant_to_load_dataset(monkeypatch):
+    # Verifies the actual call site uses the DATASET_NAME constant (so a
+    # future edit to that constant can't silently drift from what's
+    # actually requested from the Hugging Face hub).
+    captured = {}
+
+    class _FakeSplit:
+        def shuffle(self, seed):
+            return self
+
+        def select(self, indices):
+            return self
+
+        def map(self, fn, batched=True):
+            return self
+
+        def set_format(self, *args, **kwargs):
+            pass
+
+    def fake_load_dataset(name, cache_dir=None):
+        captured["dataset_name"] = name
+        return {"train": _FakeSplit(), "test": _FakeSplit()}
+
+    fake_datasets = type(sys)("datasets")
+    fake_datasets.load_dataset = fake_load_dataset
+    monkeypatch.setitem(sys.modules, "datasets", fake_datasets)
+
+    class _FakeTokenizer:
+        def __call__(self, *args, **kwargs):
+            return {}
+
+    class _FakeAutoTokenizer:
+        @staticmethod
+        def from_pretrained(name, cache_dir=None):
+            return _FakeTokenizer()
+
+    fake_transformers = type(sys)("transformers")
+    fake_transformers.AutoTokenizer = _FakeAutoTokenizer
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    hf._prepare_tokenized_dataset(cache_dir=None, seed=0)
+
+    assert captured["dataset_name"] == "stanfordnlp/imdb"
+    assert captured["dataset_name"] == hf.DATASET_NAME
+
+
 def test_parameter_space_matches_spec():
     choices = {d.name: list(d.choices) for d in hf.HUGGINGFACE_PARAMETER_SPACE.dimensions}
     assert choices == {"learning_rate": [1e-5, 3e-5, 1e-4], "batch_size": [8, 16]}
