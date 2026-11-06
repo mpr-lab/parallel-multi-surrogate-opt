@@ -3,7 +3,9 @@ import sys
 
 import numpy as np
 import pytest
+from sklearn.ensemble import RandomForestClassifier
 
+import objectives.classical_ml as classical_ml
 from objectives.classical_ml import (
     LOGISTIC_REGRESSION_EXPANDED_PARAMETER_SPACE,
     LOGISTIC_REGRESSION_PARAMETER_SPACE,
@@ -31,6 +33,72 @@ def test_random_forest_objective_returns_valid_accuracy():
     objective = make_random_forest_objective(dataset=FAST_DATASET, seed=0)
     y = objective({"n_estimators": 50, "max_depth": 5})
     assert 0.0 <= y <= 1.0
+
+
+# -- explicit single-threaded resource control (experiment-level fairness) --
+# RandomForestClassifier/XGBClassifier must be constructed with n_jobs=1 so
+# the WorkerPool's own worker count controls parallelism, not each
+# library's own threading default (sklearn's n_jobs=None -> 1 core,
+# XGBoost's n_jobs=None -> all cores -- confounding wall-clock comparisons).
+
+
+def test_random_forest_is_constructed_with_n_jobs_1(monkeypatch):
+    captured_kwargs = {}
+    real_random_forest_classifier = classical_ml.RandomForestClassifier
+
+    class RecordingRandomForestClassifier(real_random_forest_classifier):
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(classical_ml, "RandomForestClassifier", RecordingRandomForestClassifier)
+
+    objective = make_random_forest_objective(dataset=FAST_DATASET, seed=0)
+    y = objective({"n_estimators": 50, "max_depth": 5})
+
+    assert captured_kwargs["n_jobs"] == 1
+    assert 0.0 <= y <= 1.0
+
+
+def test_xgboost_is_constructed_with_n_jobs_1(monkeypatch):
+    # Stub xgboost entirely so this is independent of whether the real
+    # package is installed/working in this environment.
+    captured_kwargs = {}
+
+    class _FakeXGBClassifier:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+        def fit(self, X, y):
+            self._y = y
+
+        def score(self, X, y):
+            return 0.75
+
+    fake_xgboost = type(sys)("xgboost")
+    fake_xgboost.XGBClassifier = _FakeXGBClassifier
+    monkeypatch.setitem(sys.modules, "xgboost", fake_xgboost)
+
+    objective = make_xgboost_objective(dataset=FAST_DATASET, seed=0)
+    y = objective({"eta": 0.1, "max_depth": 6})
+
+    assert captured_kwargs["n_jobs"] == 1
+    assert y == 0.75  # objective wiring (fit + score) still works as before
+
+
+def test_random_forest_n_jobs_does_not_change_the_fitted_result():
+    # n_jobs controls parallelism only -- for a fixed random_state, the
+    # trees built (and therefore the accuracy) must be identical whether
+    # n_jobs is 1 or sklearn's default (None). Confirms this change only
+    # affects wall-clock timing, not experiment results.
+    data = prepare_classical_ml_data(dataset=FAST_DATASET, seed=0)
+
+    model_default = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=0, n_jobs=None)
+    model_explicit = RandomForestClassifier(n_estimators=50, max_depth=5, random_state=0, n_jobs=1)
+    model_default.fit(data.X_train, data.y_train)
+    model_explicit.fit(data.X_train, data.y_train)
+
+    assert model_default.score(data.X_val, data.y_val) == model_explicit.score(data.X_val, data.y_val)
 
 
 def test_logistic_regression_parameter_space_matches_spec():

@@ -283,6 +283,11 @@ def make_random_forest_objective(
             n_estimators=params["n_estimators"],
             max_depth=params["max_depth"],
             random_state=model_random_state,
+            # Explicit, not sklearn's default: sklearn's n_jobs=None means
+            # 1 core, so this is a no-op on the actual parallelism (kept
+            # for symmetry with the XGBoost fix below and to make the
+            # single-core intent explicit rather than incidental).
+            n_jobs=1,
         )
         model.fit(data.X_train, data.y_train)
         return float(model.score(data.X_val, data.y_val))
@@ -329,6 +334,11 @@ def make_xgboost_objective(
             max_depth=params["max_depth"],
             random_state=model_random_state,
             eval_metric="logloss",
+            # Explicit, not XGBoost's default: XGBoost's n_jobs=None
+            # resolves to using all available CPU threads (nthread=-1
+            # internally), which otherwise confounds wall-clock timing
+            # comparisons with the WorkerPool's own worker count.
+            n_jobs=1,
         )
         model.fit(data.X_train, data.y_train)
         return float(model.score(data.X_val, data.y_val))

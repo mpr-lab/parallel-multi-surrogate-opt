@@ -150,6 +150,16 @@ Every run collects separate timing for at least:
 
 See `interfaces.md` section 8 for the exact field shapes.
 
+**Classical ML objectives explicitly use one internal CPU thread so that
+experiment-level worker count controls parallelism and wall-clock
+comparisons are not confounded by library-specific threading defaults.**
+Concretely: `RandomForestClassifier(..., n_jobs=1)` and
+`XGBClassifier(..., n_jobs=1)` in `objectives/classical_ml.py`. Without
+this, sklearn's `n_jobs=None` (1 core) and XGBoost's `n_jobs=None` (all
+available cores) would silently give the two objectives a different
+amount of hardware parallelism regardless of `--workers`, making any
+wall-clock timing comparison between them meaningless.
+
 ---
 
 ### K. Stopping condition
@@ -198,6 +208,9 @@ XGBoost):
 
 - Dataset choice is **explicit** (`--dataset`), never silently assumed by
   an objective function.
+- **CPU threading is explicitly single-threaded per objective** (`n_jobs=1`
+  on both `RandomForestClassifier` and `XGBClassifier`) — see section J
+  for why.
 - **`higgs` is now the frozen real-experiment dataset** for Logistic
   Regression, Random Forest, and XGBoost, recovered from the historical
   `hpc-bayes-opt` profiling artifacts (BoTorch Logistic Regression,
