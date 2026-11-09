@@ -37,7 +37,7 @@ from objectives.huggingface_distilbert import (  # noqa: E402
 from orchestrator import Orchestrator  # noqa: E402
 from parameter_space import ParameterSpace  # noqa: E402
 from search_space import SearchSpace  # noqa: E402
-from surrogates import GaussianProcessSurrogate, RandomForestSurrogate  # noqa: E402
+from surrogates import GaussianProcessSurrogate, RandomForestSurrogate, TPESurrogate  # noqa: E402
 from worker_pool import WorkerPool  # noqa: E402
 
 # "Legacy" shape: a bare objective + plain continuous bounds, used
@@ -158,6 +158,13 @@ SURROGATE_PAIR_REGISTRY = {
     "gp_rf": (
         lambda seed: GaussianProcessSurrogate(random_state=seed),
         lambda seed: RandomForestSurrogate(random_state=seed),
+    ),
+    "gp_tpe": (
+        lambda seed: GaussianProcessSurrogate(random_state=seed),
+        # TPESurrogate has no random_state: fit() is fully deterministic
+        # and all of its randomness flows through the rng the Orchestrator
+        # already passes explicitly into propose().
+        lambda seed: TPESurrogate(),
     ),
 }
 

@@ -26,6 +26,14 @@ class SearchSpace:
     def dim(self) -> int:
         return len(self._low)
 
+    @property
+    def low(self) -> np.ndarray:
+        return self._low.copy()
+
+    @property
+    def high(self) -> np.ndarray:
+        return self._high.copy()
+
     def sample(self, n: int, rng: np.random.Generator) -> np.ndarray:
         """Return an array of shape (n, dim) sampled uniformly within bounds."""
         return rng.uniform(self._low, self._high, size=(n, self.dim))
